@@ -654,8 +654,21 @@ class JarvisAuthProvider implements AuthProviderInterface {
         if (_currentUser != null) {
           _logger.i('Loaded user data from preferences: ${_currentUser!.email}');
         } else {
-          _logger.w('No user data in preferences');
-          throw 'Failed to get user data';
+          // Create a minimal placeholder user if we have a userId
+          final userId = _apiService.getUserId();
+          if (userId != null) {
+            _currentUser = UserModel(
+              uid: userId,
+              email: '',
+              createdAt: DateTime.now(),
+              isEmailVerified: true,
+            );
+            _logger.i('Created placeholder user with ID: $userId');
+            await _saveUserToPrefs(_currentUser!);
+          } else {
+            _logger.w('No user data available and no user ID');
+            throw 'Failed to get user data';
+          }
         }
       }
     } catch (e) {

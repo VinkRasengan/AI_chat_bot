@@ -27,6 +27,8 @@ class _HomePageState extends State<HomePage> {
   String _selectedModel = 'gemini-1.5-flash-latest';
   String _userEmail = '';
   String _userName = '';
+  String? _error;
+  bool _noConversationsYet = false;
   
   @override
   void initState() {
@@ -131,38 +133,29 @@ class _HomePageState extends State<HomePage> {
   }
   
   Future<void> _loadChatSessions() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
-      _hasError = false;
+      _chatSessions = [];
+      _error = null;
     });
     
     try {
-      // Check if token needs refreshing first
-      final authService = AuthService();
-      if (!await authService.isLoggedIn()) {
-        _logger.w('User not logged in or token expired, forcing authentication update');
-        final refreshed = await authService.forceAuthStateUpdate();
-        if (!refreshed) {
-          _logger.w('Failed to refresh authentication, redirecting to login');
-          if (mounted) {
-            Navigator.of(context).pushReplacementNamed('/login');
-          }
-          return;
-        }
-      }
+      _logger.i('Loading chat sessions');
       
-      final isUsingGemini = _chatService.isUsingDirectGeminiApi();
-      final sessions = await _chatService.getUserChatSessions();
+      final chatSessions = await _chatService.getUserChatSessions();
       
       if (!mounted) return;
       
       setState(() {
-        _chatSessions = sessions;
+        _chatSessions = chatSessions;
         _isLoading = false;
-        if (isUsingGemini && sessions.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Using offline mode. Some features may be limited.')),
-          );
+        
+        // If there are no sessions and we're not using direct Gemini API,
+        // don't show an error - this is normal for some models
+        if (_chatSessions.isEmpty && !_chatService.isUsingDirectGeminiApi()) {
+          _noConversationsYet = true;
         }
       });
     } catch (e) {
@@ -170,41 +163,27 @@ class _HomePageState extends State<HomePage> {
       
       if (!mounted) return;
       
-      // Check if it's an authentication error
-      if (e.toString().contains('Authentication failed') || 
-          e.toString().contains('Unauthorized') ||
-          e.toString().contains('401')) {
-        
-        _logger.w('Authentication error, attempting to refresh token');
-        final refreshed = await _authService.forceAuthStateUpdate();
-        
-        if (!refreshed && mounted) {
-          _logger.w('Token refresh failed, redirecting to login');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Session expired. Please log in again.')),
-          );
-          Navigator.of(context).pushReplacementNamed('/login');
-          return;
-        }
-        
-        // Try loading sessions again after successful token refresh
-        if (refreshed && mounted) {
-          _logger.i('Token refreshed, retrying loading sessions');
-          _loadChatSessions();
-          return;
-        }
+      // Don't show error for the specific conversation history limitation
+      if (e.toString().contains('does not support conversation history')) {
+        setState(() {
+          _isLoading = false;
+          _noConversationsYet = true;
+        });
+        return;
       }
       
-      if (mounted) {
-        setState(() {
-          _hasError = true;
-          _isLoading = false;
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load chats: $e')),
-        );
-      }
+      setState(() {
+        _isLoading = false;
+        _error = 'Failed to load conversations. Please try again.';
+      });
+      
+      // Show a snackbar with the error
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_error ?? 'Unknown error'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
   

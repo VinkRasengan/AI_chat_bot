@@ -68,7 +68,15 @@ class JarvisChatService {
         _logger.i('Retrieved ${sessions.length} chat sessions');
         return sessions;
       } catch (e) {
-        if (e.toString().contains('Authentication failed') || 
+        if (e.toString().contains('does not support conversation history')) {
+          // This is an expected case for some models - just return an empty list
+          _logger.i('Using a model that does not support conversation history. Creating local chat sessions.');
+          
+          // Return a single local session if there are none
+          return [
+            await _createLocalChatSession('New Chat'),
+          ];
+        } else if (e.toString().contains('Authentication failed') || 
             e.toString().contains('Unauthorized')) {
           // API is having auth issues, switch to Gemini
           _useDirectGeminiApi = true;
@@ -90,6 +98,12 @@ class JarvisChatService {
            e.toString().contains('Authentication failed'))) {
         _useDirectGeminiApi = true;
         _logger.i('Switching to direct Gemini API due to auth errors');
+        return [];
+      }
+      
+      // For the specific conversation history error, just return an empty list
+      // rather than showing an error message to the user
+      if (e.toString().contains('does not support conversation history')) {
         return [];
       }
       

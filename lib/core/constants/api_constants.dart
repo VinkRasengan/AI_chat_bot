@@ -27,15 +27,18 @@ class ApiConstants {
   static const String authSessionRefresh = '/api/v1/auth/sessions/current/refresh';
   static const String authSessionCurrent = '/api/v1/auth/sessions/current';
   static const String authEmailVerificationStatus = '/api/v1/auth/emails/verification/status';
-  static const String userProfile = '/api/v1/user/profiles';
-  static const String userChangePassword = '/api/v1/user/change-passwords';
   
-  // AI chat endpoints
-  static const String conversations = '/api/v1/ai-chats/conversations';          // Updated to "ai-chats" from "ai-chat"
-  static const String messages = '/api/v1/ai-chats/messages';                    // Updated to "ai-chats" from "ai-chat"
+  // User profile endpoints - update path to match API structure
+  static const String userProfile = '/api/v1/user/profile';  // Updated with correct path
+  static const String userChangePassword = '/api/v1/user/change-password';
   
-  // Other API endpoints
-  static const String status = '/api/v1/status';
+  // AI chat endpoints - use consistent paths that match the API documentation
+  static const String conversations = '/api/v1/ai-chat/conversations';
+  static const String messages = '/api/v1/ai-chat/messages';
+  static const String conversationMessages = '/api/v1/ai-chat/conversations/{conversationId}/messages';
+  
+  // API status endpoint for token validation
+  static const String apiStatus = '/api/v1/status';
   static const String models = '/api/v1/models';
   
   // Gemini API endpoints
@@ -57,15 +60,15 @@ class ApiConstants {
   static const String refreshTokenKey = 'jarvis_refresh_token';
   static const String userIdKey = 'jarvis_user_id';
 
-  // Required OAuth scopes for Jarvis API - updated with proper scope names
+  // Required OAuth scopes for Jarvis API - Updated to match actual API requirements
   static const List<String> requiredScopes = [
-    'ai-chats:read',       // Updated from ai-chat:read
-    'ai-chats:write',      // Updated from ai-chat:write
-    'users:read',          // Updated from user:read
-    'users:write',         // Updated from user:write
-    'ai-models:read',      // Updated from ai-model:read
-    'conversations:read',  // Updated from conversation:read
-    'conversations:write'  // Updated from conversation:write
+    'ai-chat:read',        // Correct scope names for the API
+    'ai-chat:write',       // These match the actual API requirements
+    'users:read',          
+    'users:write',
+    'ai-models:read',
+    'conversations:read',
+    'conversations:write'
   ];
   
   // Stack Auth configuration - kept for reference but not used in current implementation
