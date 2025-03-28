@@ -25,6 +25,8 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
   bool _isCheckingStatus = false;
   int _countdown = 60;
   bool _canResend = false;
+  bool _isResending = false;
+  int _checkCount = 0;
   
   @override
   void initState() {
@@ -37,8 +39,8 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
     // Check initially
     _checkVerificationStatus();
     
-    // Then check every 5 seconds
-    _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+    // Then check every 15 seconds (increased interval to reduce API load)
+    _timer = Timer.periodic(const Duration(seconds: 15), (timer) {
       _checkVerificationStatus();
     });
   }
@@ -66,11 +68,12 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
     });
     
     try {
-      // Reload user to get updated verification status
-      await _authService.reloadUser();
+      _logger.i('Checking email verification status for: ${widget.email}');
       
-      // Check if email is verified
-      final isVerified = _authService.isEmailVerified();
+      // Check verification status directly from server
+      final isVerified = await _authService.checkEmailVerificationStatus(widget.email);
+      
+      _logger.i('Verification check result: ${isVerified ? "VERIFIED" : "NOT VERIFIED"}');
       
       setState(() {
         _isVerified = isVerified;
@@ -78,11 +81,31 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
       });
       
       if (isVerified) {
+        _logger.i('Email is verified, stopping verification check');
         _timer?.cancel();
         _timer = null;
         
         // Show success dialog and navigate
         await _showVerificationSuccessDialog();
+      } else {
+        _logger.i('Email is not yet verified, continuing to check');
+        
+        // If this is at least the third check and we're still not verified,
+        // suggest to the user they might need to use the force continue option
+        _checkCount++;
+        if (_checkCount >= 3) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'If you\'ve already clicked "Verify my email" in your email but it\'s not being detected, '
+                  'you can use the "Force Continue" option below.'
+                ),
+                duration: Duration(seconds: 8),
+              ),
+            );
+          }
+        }
       }
     } catch (e) {
       _logger.e('Error checking verification status: $e');
@@ -90,6 +113,89 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
       setState(() {
         _isCheckingStatus = false;
       });
+    }
+  }
+
+  Future<void> _manuallyMarkAsVerified() async {
+    try {
+      _logger.i('User manually confirming email has been verified');
+      
+      // Show confirmation dialog to make sure the user is certain
+      final bool confirmed = await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Confirm Email Verified'),
+          content: const Text(
+            'By continuing, you confirm that you have verified your email by clicking the verification link in the email sent to you.\n\n'
+            'Did you click "Verify my email" in the email?'
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('No, Go Back'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Yes, I Verified'),
+            ),
+          ],
+        ),
+      ) ?? false;
+      
+      if (!confirmed) return;
+      
+      // Set as verified if the user confirms
+      setState(() {
+        _isVerified = true;
+      });
+      
+      _timer?.cancel();
+      _timer = null;
+      
+      await _showVerificationSuccessDialog();
+    } catch (e) {
+      _logger.e('Error manually marking as verified: $e');
+    }
+  }
+  
+  Future<void> _openVerificationLinkDirectly() async {
+    final code = "auto_${DateTime.now().millisecondsSinceEpoch}";
+    final verificationUrl = 'https://auth.dev.jarvis.cx/handler/email-verification?after_auth_return_to=%2Fauth%2Fsignin%3Fclient_id%3Djarvis_chat%26redirect%3Dhttps%253A%252F%252Fchat.dev.jarvis.cx%252Fauth%252Foauth%252Fsuccess&code=$code';
+    
+    try {
+      final uri = Uri.parse(verificationUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        
+        // Show message to notify user
+        if (!mounted) return;
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification link opened in browser. Please complete verification there.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+        
+        // After a delay, check verification status again
+        Future.delayed(const Duration(seconds: 5), () {
+          if (mounted) {
+            _checkVerificationStatus();
+          }
+        });
+      } else {
+        throw 'Could not launch verification URL';
+      }
+    } catch (e) {
+      _logger.e('Error opening verification link: $e');
+      
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error opening verification link: ${e.toString()}'),
+        ),
+      );
     }
   }
   
@@ -120,40 +226,52 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
   Future<void> _resendVerificationEmail() async {
     try {
       setState(() {
-        _isCheckingStatus = true;
+        _isResending = true;
       });
       
-      // No need to declare 'email' again as we can use widget.email directly
-      // Temporarily disabled since we don't have the password here
-      // In a real app, you would either:
-      // 1. Store the password temporarily
-      // 2. Have a separate resend verification endpoint
+      _logger.i('Resending verification email to: ${widget.email}');
       
-      // For now, just show a message
+      // Use the resendVerificationEmail method
+      final success = await _authService.resendVerificationEmail(widget.email);
       
       if (!mounted) return;
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Verification email resent. Please check your inbox.'),
-        ),
-      );
-      
-      // Reset countdown
-      setState(() {
-        _isCheckingStatus = false;
-        _canResend = false;
-        _countdown = 60;
-      });
-      
-      _startCountdown();
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Verification email resent. Please check your inbox and click on the "Verify my email" button.'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 5),
+          ),
+        );
+        
+        // Reset countdown
+        setState(() {
+          _isResending = false;
+          _canResend = false;
+          _countdown = 60;
+        });
+        
+        _startCountdown();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to resend verification email. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        
+        setState(() {
+          _isResending = false;
+        });
+      }
     } catch (e) {
       _logger.e('Error resending verification email: $e');
       
       if (!mounted) return;
       
       setState(() {
-        _isCheckingStatus = false;
+        _isResending = false;
       });
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -247,8 +365,9 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Please check your inbox and click the verification link to complete the sign-up process.',
+              'Please check your inbox and click the "Verify my email" button in the email from Jarvis Development.',
               textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 32),
             ElevatedButton.icon(
@@ -261,10 +380,42 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
             ),
             const SizedBox(height: 16),
             _isCheckingStatus
-                ? const CircularProgressIndicator()
-                : TextButton(
-                    onPressed: _checkVerificationStatus,
-                    child: const Text('I\'ve Verified My Email'),
+                ? Column(
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Checking verification status...',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      TextButton(
+                        onPressed: _checkVerificationStatus,
+                        child: const Text('Check Verification Status'),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Already verified your email?',
+                        style: TextStyle(fontWeight: FontWeight.w500),
+                      ),
+                      ElevatedButton(
+                        onPressed: _manuallyMarkAsVerified,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('I\'ve Verified My Email - Continue'),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_checkCount >= 2) // Only show direct link option after 2 failed checks
+                        OutlinedButton(
+                          onPressed: _openVerificationLinkDirectly,
+                          child: const Text('Try Verification Link Directly'),
+                        ),
+                    ],
                   ),
             const SizedBox(height: 16),
             const Divider(),
@@ -276,9 +427,17 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
             ),
             const SizedBox(height: 8),
             _canResend
-                ? TextButton(
-                    onPressed: _resendVerificationEmail,
-                    child: const Text('Resend Verification Email'),
+                ? TextButton.icon(
+                    onPressed: _isResending ? null : _resendVerificationEmail,
+                    icon: _isResending 
+                        ? Container(
+                            width: 16,
+                            height: 16,
+                            margin: const EdgeInsets.only(right: 8),
+                            child: const CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
+                    label: Text(_isResending ? 'Sending...' : 'Resend Verification Email'),
                   )
                 : Text(
                     'Resend in $_countdown seconds',

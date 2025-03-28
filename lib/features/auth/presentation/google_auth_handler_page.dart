@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
-
+import '../../../core/services/auth/auth_service.dart';
 import '../../chat/presentation/home_page.dart';
 
 class GoogleAuthHandlerPage extends StatefulWidget {
@@ -17,6 +17,7 @@ class GoogleAuthHandlerPage extends StatefulWidget {
 
 class _GoogleAuthHandlerPageState extends State<GoogleAuthHandlerPage> {
   final Logger _logger = Logger();
+  final AuthService _authService = AuthService();
   
   bool _isProcessing = true;
   String? _errorMessage;
@@ -31,44 +32,38 @@ class _GoogleAuthHandlerPageState extends State<GoogleAuthHandlerPage> {
     try {
       _logger.i('Processing Google auth callback with params: ${widget.params}');
       
-      // For some authentication flows, we would validate the state parameter
-      // against CSRF token, but this is usually handled by the underlying auth provider
+      // Process the auth response
+      final user = await _authService.processGoogleAuthResponse(widget.params);
       
-      // Process the auth code/token
-      if (widget.params.containsKey('code') || widget.params.containsKey('token')) {
-        final code = widget.params['code'] ?? widget.params['token'] ?? '';
+      if (!mounted) return;
+      
+      if (user != null) {
+        _logger.i('Google authentication successful for user: ${user.email}');
         
-        if (code.isNotEmpty) {
-          _logger.i('Processing auth code/token: ${code.substring(0, 5)}...');
-          
-          // Temporarily disabled as we're not supporting Google auth with Jarvis API
-          _errorMessage = 'Google authentication is not currently supported with Jarvis API';
-          
-          // Handle success
-          if (!mounted) return;
-          setState(() {
-            _isProcessing = false;
-          });
-          
-          return;
-        }
+        setState(() {
+          _isProcessing = false;
+        });
+        
+        // Navigate to home page after short delay
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            _navigateToHome();
+          }
+        });
+      } else {
+        _logger.w('Google authentication returned null user');
+        setState(() {
+          _errorMessage = 'Xác thực Google không thành công';
+          _isProcessing = false;
+        });
       }
-      
-      // If we reach here, the URL didn't contain valid auth parameters
-      _logger.w('Auth parameters not found in URL');
-      
-      // Set error message and stop loading
-      setState(() {
-        _errorMessage = 'Invalid authentication parameters';
-        _isProcessing = false;
-      });
     } catch (e) {
       _logger.e('Error processing Google auth: $e');
       
       if (!mounted) return;
       
       setState(() {
-        _errorMessage = 'Error processing authentication: ${e.toString()}';
+        _errorMessage = 'Lỗi xác thực: ${e.toString()}';
         _isProcessing = false;
       });
     }

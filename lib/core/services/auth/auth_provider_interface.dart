@@ -41,4 +41,29 @@ abstract class AuthProviderInterface {
   
   /// Update user profile
   Future<bool> updateUserProfile(Map<String, dynamic> userData);
+  
+  /// Check email verification status with the server
+  Future<bool> checkEmailVerificationStatus(String email) {
+    throw UnimplementedError('checkEmailVerificationStatus is not implemented');
+  }
+  
+  /// Sign in with Google (optional for providers)
+  Future<UserModel> signInWithGoogle() {
+    throw UnimplementedError('signInWithGoogle is not implemented');
+  }
+  
+  /// Get Google auth URL (optional for providers)
+  String getGoogleAuthUrl() {
+    return '';
+  }
+  
+  /// Process Google auth response (optional for providers)
+  Future<UserModel?> processGoogleAuthResponse(Map<String, String> params) {
+    throw UnimplementedError('processGoogleAuthResponse is not implemented');
+  }
+  
+  /// Resend verification email (optional for providers)
+  Future<bool> resendVerificationEmail(String email) {
+    throw UnimplementedError('resendVerificationEmail is not implemented');
+  }
 }

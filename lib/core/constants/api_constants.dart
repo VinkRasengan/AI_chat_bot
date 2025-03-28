@@ -76,4 +76,9 @@ class ApiConstants {
 
   // Note: Server-side keys like stackSecretServerKey should NEVER be included in client-side code
   // Server-only operations should be handled through secure backend services
+
+  // Google Auth related constants
+  static const String googleAuthEndpoint = '/api/v1/auth/google/authorize';
+  static const String googleCallbackEndpoint = '/api/v1/auth/google/callback';
+  static const String googleRedirectUri = 'https://chat.dev.jarvis.cx/auth/google/callback';
 }

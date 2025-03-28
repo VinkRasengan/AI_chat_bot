@@ -127,6 +127,22 @@ class AuthService {
     return _provider.isEmailVerified();
   }
   
+  /// Check email verification status directly from server
+  Future<bool> checkEmailVerificationStatus(String email) async {
+    if (!_isInitialized) await initializeService();
+    
+    try {
+      _logger.i('Checking email verification status for: $email');
+      
+      // Cast provider to JarvisAuthProvider to access verification status check
+      final jarvisProvider = _provider as JarvisAuthProvider;
+      return await jarvisProvider.checkEmailVerificationStatus(email);
+    } catch (e) {
+      _logger.e('Error checking email verification status: $e');
+      return false;
+    }
+  }
+  
   /// Sign in with email and password
   Future<UserModel> signInWithEmailAndPassword(String email, String password) async {
     if (!_isInitialized) await initializeService();
@@ -282,5 +298,65 @@ class AuthService {
     // Get JarvisAuthProvider for client metadata methods
     final jarvisProvider = _provider as JarvisAuthProvider;
     return jarvisProvider.getClientReadOnlyMetadata();
+  }
+  
+  /// Sign in with Google
+  Future<UserModel> signInWithGoogle() async {
+    if (!_isInitialized) await initializeService();
+    
+    try {
+      _logger.i('Sign in with Google request');
+      
+      // Cast provider to JarvisAuthProvider to access Google auth methods
+      final jarvisProvider = _provider as JarvisAuthProvider;
+      return await jarvisProvider.signInWithGoogle();
+    } catch (e) {
+      _logger.e('Google sign in error: $e');
+      throw e.toString();
+    }
+  }
+  
+  /// Get Google auth URL for web redirect flow
+  String getGoogleAuthUrl() {
+    if (!_isInitialized) {
+      _logger.w('Auth Service not initialized, returning empty Google auth URL');
+      return '';
+    }
+    
+    // Cast provider to JarvisAuthProvider to access Google auth methods
+    final jarvisProvider = _provider as JarvisAuthProvider;
+    return jarvisProvider.getGoogleAuthUrl();
+  }
+  
+  /// Process Google auth response from redirect
+  Future<UserModel?> processGoogleAuthResponse(Map<String, String> params) async {
+    if (!_isInitialized) await initializeService();
+    
+    try {
+      _logger.i('Processing Google auth response');
+      
+      // Cast provider to JarvisAuthProvider to access Google auth methods
+      final jarvisProvider = _provider as JarvisAuthProvider;
+      return await jarvisProvider.processGoogleAuthResponse(params);
+    } catch (e) {
+      _logger.e('Error processing Google auth response: $e');
+      throw e.toString();
+    }
+  }
+  
+  /// Resend email verification link
+  Future<bool> resendVerificationEmail(String email) async {
+    if (!_isInitialized) await initializeService();
+    
+    try {
+      _logger.i('Resending verification email to: $email');
+      
+      // Cast provider to JarvisAuthProvider to access email verification methods
+      final jarvisProvider = _provider as JarvisAuthProvider;
+      return await jarvisProvider.resendVerificationEmail(email);
+    } catch (e) {
+      _logger.e('Error resending verification email: $e');
+      return false;
+    }
   }
 }

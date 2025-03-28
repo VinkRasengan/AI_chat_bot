@@ -4,8 +4,10 @@ import 'package:logger/logger.dart';
 import 'core/services/auth/auth_service.dart';
 import 'features/auth/presentation/login_page.dart';
 import 'features/chat/presentation/home_page.dart';
-import 'core/constants/api_constants.dart';  // Import constants
+import 'core/constants/api_constants.dart';
 import 'core/services/platform/platform_service_helper.dart';
+import 'features/auth/presentation/google_auth_handler_page.dart';
+import 'features/auth/presentation/signup_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,11 +47,35 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const AuthCheckPage(),
-      routes: {
-        '/home': (context) => const HomePage(),
-        '/login': (context) => const LoginPage(),
+      // Handle routes for authentication
+      initialRoute: '/',
+      onGenerateRoute: (settings) {
+        // Handle Google auth callback
+        if (settings.name?.startsWith('/auth/google/callback') == true) {
+          // Extract query parameters
+          final uri = Uri.parse(settings.name!);
+          final params = uri.queryParameters;
+          
+          return MaterialPageRoute(
+            builder: (context) => GoogleAuthHandlerPage(params: params),
+          );
+        }
+        
+        // Default routes
+        switch (settings.name) {
+          case '/':
+            return MaterialPageRoute(builder: (context) => const LoginPage());
+          case '/home':
+            return MaterialPageRoute(builder: (context) => const HomePage());
+          case '/login':
+            return MaterialPageRoute(builder: (context) => const LoginPage());
+          case '/signup':
+            return MaterialPageRoute(builder: (context) => const SignupPage());
+          default:
+            return MaterialPageRoute(builder: (context) => const LoginPage());
+        }
       },
+      home: const LoginPage(),
     );
   }
 }

@@ -104,6 +104,35 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    
+    try {
+      _logger.i('Attempting to sign in with Google');
+      
+      await _authService.signInWithGoogle();
+      
+      // Note: On success, this will redirect to another page, 
+      // so we don't need to handle navigation here
+    } catch (e) {
+      _logger.e('Google sign in error: $e');
+      
+      if (!mounted) return;
+      
+      // Only set error message if we're still mounted and the error
+      // isn't related to the redirect flow
+      if (!e.toString().contains('Please complete Google authentication')) {
+        setState(() {
+          _errorMessage = 'Lỗi đăng nhập với Google: ${e.toString()}';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   bool _validateForm() {
     setState(() {
       _errorMessage = null;
@@ -209,6 +238,27 @@ class _LoginPageState extends State<LoginPage> {
                           label: 'Đăng nhập',
                           onPressed: _login,
                           isLoading: _isLoading,
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        const Center(
+                          child: Text('Hoặc'),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        // Google sign-in button
+                        OutlinedButton.icon(
+                          onPressed: _isLoading ? null : _signInWithGoogle,
+                          icon: Image.asset(
+                            'assets/images/google_logo.png',
+                            height: 24,
+                            width: 24,
+                          ),
+                          label: const Text('Đăng nhập bằng Google'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 45),
+                            side: const BorderSide(color: Colors.grey),
+                          ),
                         ),
                         
                         const SizedBox(height: 16),
