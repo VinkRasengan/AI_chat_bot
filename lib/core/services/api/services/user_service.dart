@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/user_model.dart';
 import '../../../constants/api_constants.dart';
 import 'auth_service.dart';
@@ -14,86 +15,58 @@ class UserService {
   
   UserService(this._authService);
   
-  /// Get the current user's profile
+  /// Get the current user profile from the API
   Future<UserModel?> getCurrentUser() async {
     try {
-      if (!_authService.isAuthenticated()) {
-        _logger.w('Cannot get current user: Not authenticated');
-        return null;
-      }
-
       _logger.i('Getting current user profile');
-
+      
+      // Use the correct endpoint from constants
       final response = await http.get(
-        Uri.parse('$_jarvisApiUrl/api/v1/user/profile'),
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.userProfile}'),
         headers: _authService.getHeaders(),
       );
-
+      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final userData = data['data'] ?? data;
-
-        _logger.i('Successfully retrieved user profile');
-
-        // Extract metadata from Stack Auth response
-        Map<String, dynamic>? clientMetadata;
-        Map<String, dynamic>? clientReadOnlyMetadata;
-        Map<String, dynamic>? serverMetadata;
         
-        // Check if metadata fields exist in response
-        if (userData.containsKey('client_metadata')) {
-          clientMetadata = userData['client_metadata'];
-        }
-        
-        if (userData.containsKey('client_read_only_metadata')) {
-          clientReadOnlyMetadata = userData['client_read_only_metadata'];
-        }
-        
-        if (userData.containsKey('server_metadata')) {
-          serverMetadata = userData['server_metadata'];
-        }
-
-        return UserModel(
-          uid: userData['id'] ?? _authService.getUserId() ?? '',
-          email: userData['email'] ?? '',
-          name: userData['name'],
-          createdAt: userData['created_at'] != null
-              ? DateTime.parse(userData['created_at'])
-              : DateTime.now(),
-          isEmailVerified: userData['email_verified'] ?? true,
-          selectedModel: userData['selected_model'] ?? ApiConstants.defaultModel,
-          clientMetadata: clientMetadata,
-          clientReadOnlyMetadata: clientReadOnlyMetadata,
-          serverMetadata: serverMetadata,
+        // Create a user model from the response
+        // Updated field mapping to match actual API response structure
+        final user = UserModel(
+          uid: data['id'] ?? '',
+          email: data['email'] ?? '',
+          name: data['username'] ?? '',
+          createdAt: DateTime.now(), // API doesn't return creation date
+          isEmailVerified: true, // Assuming verified since we got the profile
         );
-      } else if (response.statusCode == 401 || response.statusCode == 403) {
-        _logger.w('Authentication error (${response.statusCode}) when getting user profile, attempting token refresh');
-
-        final refreshSuccess = await _authService.refreshToken();
-        if (refreshSuccess) {
-          _logger.i('Token refreshed successfully, retrying get user profile');
-          return await getCurrentUser(); // Recursive call after refresh
-        }
         
-        _logger.w('Token refresh failed, user may need to re-authenticate');
-        return null;
-      } else {
-        _logger.w('Failed to get current user: ${response.statusCode}');
-
-        if (_authService.getUserId() != null) {
-          _logger.i('Creating fallback user model with stored user ID: ${_authService.getUserId()}');
+        _logger.i('Got user profile: ${user.email}');
+        return user;
+      } else if (response.statusCode == 404) {
+        // The user profile endpoint might not exist, so create a fallback user
+        _logger.w('Failed to get current user: 404');
+        
+        // Get user ID from shared preferences
+        final prefs = await SharedPreferences.getInstance();
+        final userId = prefs.getString(ApiConstants.userIdKey);
+        
+        if (userId != null && userId.isNotEmpty) {
+          _logger.i('Creating fallback user model with stored user ID: $userId');
+          
           return UserModel(
-            uid: _authService.getUserId()!,
+            uid: userId,
             email: '',
             createdAt: DateTime.now(),
             isEmailVerified: true,
           );
         }
-
+        
         return null;
+      } else {
+        _logger.e('Failed to get current user: ${response.statusCode}');
+        throw 'Failed to get user profile: ${response.reasonPhrase}';
       }
     } catch (e) {
-      _logger.e('Get current user error: $e');
+      _logger.e('Error getting current user: $e');
       return null;
     }
   }

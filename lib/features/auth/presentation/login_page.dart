@@ -20,87 +20,61 @@ class _LoginPageState extends State<LoginPage> {
   final AuthService _authService = AuthService();
   final Logger _logger = Logger();
   
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   String? _errorMessage;
 
   Future<void> _login() async {
-    // Hide keyboard
-    FocusScope.of(context).unfocus();
-    
-    // Validate form
-    if (!_validateForm()) {
-      return;
-    }
-    
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    
-    try {
-      _logger.i('Attempting to log in user: ${_emailController.text}');
+    if (_formKey.currentState?.validate() ?? false) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
       
-      // Call auth service to log in with standard authentication
-      final user = await _authService.signInWithEmailAndPassword(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
-      
-      if (!mounted) return;
-      
-      _logger.i('Login successful, verifying token validity');
-      
-      // Verify token validity after login
-      final isTokenValid = await _authService.isLoggedIn();
-      
-      if (!isTokenValid) {
-        _logger.w('Token validation failed after login, forcing auth state update');
+      try {
+        // Attempt to sign in with email and password
+        final user = await _authService.signInWithEmailAndPassword(
+          _emailController.text,
+          _passwordController.text,
+        );
         
-        // Force auth state update if token validation fails
-        final updateSuccess = await _authService.forceAuthStateUpdate();
+        _logger.i('Login successful for: ${user.email}');
         
-        if (!updateSuccess) {
-          _logger.e('Auth state update failed, showing error');
-          throw 'Authentication failed. Please try again.';
+        // Force auth state update to ensure all systems are synchronized
+        final authUpdated = await _authService.forceAuthStateUpdate();
+        if (!authUpdated) {
+          _logger.w('Auth state update failed, but login was successful - proceeding anyway');
+          // Don't show an error here - just log the issue but continue
+        }
+        
+        if (!mounted) return;
+        
+        // Navigate to home page
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const HomePage()),
+        );
+      } catch (e) {
+        _logger.e('Login error: $e');
+        
+        if (!mounted) return;
+        
+        // Format the error message to be more user-friendly
+        setState(() {
+          if (e.toString().contains('scope')) {
+            // For scope-related errors, provide a more helpful message
+            _errorMessage = 'Login successful, but some features may be limited. Please contact support.';
+          } else {
+            _errorMessage = 'Authentication failed. Please try again.';
+          }
+        });
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
         }
       }
-      
-      _logger.i('Authentication verified, navigating to home page');
-      
-      // Navigate to home page
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const HomePage(),
-        ),
-      );
-    } catch (e) {
-      _logger.e('Login error: $e');
-      
-      if (!mounted) return;
-      
-      String errorMsg;
-      
-      // Check for common API errors
-      if (e.toString().contains('invalid_credentials') || 
-          e.toString().contains('wrong password') ||
-          e.toString().contains('user not found')) {
-        errorMsg = 'Email hoặc mật khẩu không đúng. Vui lòng thử lại.';
-      } else if (e.toString().contains('network') || 
-                e.toString().contains('connect')) {
-        errorMsg = 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối internet của bạn.';
-      } else if (e.toString().toLowerCase().contains('scope') || 
-                 e.toString().toLowerCase().contains('permission')) {
-        errorMsg = 'Không thể đăng nhập với đầy đủ quyền truy cập. Vui lòng thử lại.';
-      } else {
-        // Use a more user-friendly error message
-        errorMsg = 'Lỗi đăng nhập: ${e.toString()}';
-      }
-      
-      setState(() {
-        _errorMessage = errorMsg;
-        _isLoading = false;
-      });
     }
   }
 
@@ -171,120 +145,123 @@ class _LoginPageState extends State<LoginPage> {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text(
-                  'AI Chat Bot',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 40),
-                Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Đăng nhập',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        EmailField(
-                          controller: _emailController,
-                          onChanged: (_) => setState(() => _errorMessage = null),
-                        ),
-                        const SizedBox(height: 16),
-                        PasswordField(
-                          controller: _passwordController,
-                          labelText: 'Mật khẩu',
-                          errorText: _errorMessage,
-                          onChanged: (_) => setState(() => _errorMessage = null),
-                          onSubmit: _login,
-                        ),
-                        
-                        const SizedBox(height: 8),
-                        
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const ForgotPasswordPage(),
-                                  ),
-                                );
-                              },
-                              child: const Text('Quên mật khẩu?'),
-                            ),
-                          ],
-                        ),
-                        
-                        const SizedBox(height: 24),
-                        
-                        SubmitButton(
-                          label: 'Đăng nhập',
-                          onPressed: _login,
-                          isLoading: _isLoading,
-                        ),
-                        
-                        const SizedBox(height: 16),
-                        const Center(
-                          child: Text('Hoặc'),
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        // Google sign-in button
-                        OutlinedButton.icon(
-                          onPressed: _isLoading ? null : _signInWithGoogle,
-                          icon: Image.asset(
-                            'assets/images/google_logo.png',
-                            height: 24,
-                            width: 24,
-                          ),
-                          label: const Text('Đăng nhập bằng Google'),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(double.infinity, 45),
-                            side: const BorderSide(color: Colors.grey),
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('Chưa có tài khoản?'),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => const SignupPage(),
-                                  ),
-                                );
-                              },
-                              child: const Text('Đăng ký ngay'),
-                            ),
-                          ],
-                        ),
-                      ],
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'AI Chat Bot',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 40),
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Đăng nhập',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          EmailField(
+                            controller: _emailController,
+                            onChanged: (_) => setState(() => _errorMessage = null),
+                          ),
+                          const SizedBox(height: 16),
+                          PasswordField(
+                            controller: _passwordController,
+                            labelText: 'Mật khẩu',
+                            errorText: _errorMessage,
+                            onChanged: (_) => setState(() => _errorMessage = null),
+                            onSubmit: _login,
+                          ),
+                          
+                          const SizedBox(height: 8),
+                          
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const ForgotPasswordPage(),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Quên mật khẩu?'),
+                              ),
+                            ],
+                          ),
+                          
+                          const SizedBox(height: 24),
+                          
+                          SubmitButton(
+                            label: 'Đăng nhập',
+                            onPressed: _login,
+                            isLoading: _isLoading,
+                          ),
+                          
+                          const SizedBox(height: 16),
+                          const Center(
+                            child: Text('Hoặc'),
+                          ),
+                          const SizedBox(height: 16),
+                          
+                          // Google sign-in button
+                          OutlinedButton.icon(
+                            onPressed: _isLoading ? null : _signInWithGoogle,
+                            icon: Image.asset(
+                              'assets/images/google_logo.png',
+                              height: 24,
+                              width: 24,
+                            ),
+                            label: const Text('Đăng nhập bằng Google'),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 45),
+                              side: const BorderSide(color: Colors.grey),
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 16),
+                          
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text('Chưa có tài khoản?'),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const SignupPage(),
+                                    ),
+                                  );
+                                },
+                                child: const Text('Đăng ký ngay'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

@@ -42,13 +42,20 @@ class AiChatService {
   
   /// Get a list of conversations for the current user
   Future<List<ChatSession>> getConversations() async {
-    // If we're in fallback mode, return empty list
+    // Skip immediate fallback check and try API first if we have a valid token
+    await _checkForValidToken();
+    
+    // Now check if we're still in fallback mode after the token check
     if (_useLocalFallback) {
       _logger.i('Using local fallback mode, returning empty conversations list');
       return [];
     }
     
     try {
+      // Reset fallback mode if we're attempting an API call
+      // This ensures we can recover from temporary failures
+      _useLocalFallback = false;
+      
       // Prepare query parameters according to the API documentation
       final queryParams = {
         'limit': '100',
@@ -60,7 +67,7 @@ class AiChatService {
         queryParams['assistantId'] = _selectedModel!;
       }
 
-      // Build the URI with query parameters - use the exact endpoint from constants
+      // Build the URI with query parameters
       final uri = Uri.parse('$_jarvisApiUrl${ApiConstants.conversations}')
           .replace(queryParameters: queryParams);
 
@@ -68,6 +75,8 @@ class AiChatService {
 
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _errorCount > 0);
+      // Add x-jarvis-guid header which might be required by the API
+      headers['x-jarvis-guid'] = '';
       
       final response = await http.get(
         uri,
@@ -96,6 +105,24 @@ class AiChatService {
         }
 
         return conversations;
+      } else if (response.statusCode == 400) {
+        // Parse the response to check for the specific error about conversation history
+        try {
+          final errorData = jsonDecode(response.body);
+          final errorMessage = errorData['message'] ?? '';
+          
+          if (errorMessage.contains('does not support conversation history')) {
+            _logger.i('Model does not support conversation history, returning empty list without error');
+            // This is an expected limitation, not an error
+            return [];
+          }
+        } catch (e) {
+          // If we can't parse the response, continue with normal error handling
+          _logger.e('Error parsing 400 response: $e');
+        }
+        
+        _logger.e('Error getting conversations: ${response.body}');
+        throw 'Failed to get conversations: ${response.statusCode} ${response.reasonPhrase}';
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         _hasAuthError = true;
         _errorCount++;
@@ -126,6 +153,12 @@ class AiChatService {
         throw 'Failed to get conversations: ${response.statusCode} ${response.reasonPhrase}';
       }
     } catch (e) {
+      // Special handling for the "conversation history not supported" error
+      if (e.toString().toLowerCase().contains('does not support conversation history')) {
+        _logger.i('Model does not support conversation history, returning empty list');
+        return [];
+      }
+      
       _errorCount++;
       _logger.e('Error getting conversations: $e');
       
@@ -162,12 +195,14 @@ class AiChatService {
       }
 
       // Build the URI with the conversationId path parameter and query parameters
-      // Use the helper method from constants for the correct path
+      // Make sure there are no double slashes in the path by using proper path joining
       final uri = Uri.parse('$_jarvisApiUrl${ApiConstants.conversationMessages(conversationId)}')
           .replace(queryParameters: queryParams);
       
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _hasAuthError);
+      // Add x-jarvis-guid header which might be required by the API
+      headers['x-jarvis-guid'] = '';
       
       final response = await http.get(
         uri,
@@ -337,6 +372,8 @@ class AiChatService {
       
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _hasAuthError);
+      // Add x-jarvis-guid header which might be required by the API
+      headers['x-jarvis-guid'] = '';
       
       final response = await http.post(
         uri,
@@ -440,6 +477,13 @@ class AiChatService {
     
     try {
       _logger.i('Creating new conversation: $title');
+      
+      // Check token before attempting API call
+      final hasToken = await _checkForValidToken();
+      if (!hasToken) {
+        _logger.w('No valid token found, attempting to refresh before creating conversation');
+        await _authService.refreshToken();
+      }
       
       // Use the exact endpoint from constants
       final uri = Uri.parse('$_jarvisApiUrl${ApiConstants.conversations}');
@@ -562,11 +606,57 @@ class AiChatService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('use_local_fallback', useFallback);
+      
+      // Also log the current auth state for debugging
+      final hasToken = await _checkForValidToken();
+      _logger.i('Current auth state - Has valid token: $hasToken');
     } catch (e) {
       _logger.e('Error saving fallback mode preference: $e');
     }
   }
   
+  /// Check if we have a valid token
+  Future<bool> _checkForValidToken() async {
+    try {
+      final headers = await _getHeaders();
+      final hasAuthHeader = headers.containsKey('Authorization') && 
+                           headers['Authorization']!.isNotEmpty;
+      
+      // If we have a token, don't automatically use fallback mode,
+      // give the API calls a chance to work
+      if (hasAuthHeader) {
+        _logger.i('Valid auth token found, resetting fallback mode');
+        _useLocalFallback = false;
+      }
+      
+      _logger.i('Auth header present: $hasAuthHeader');
+      return hasAuthHeader;
+    } catch (e) {
+      _logger.e('Error checking for token: $e');
+      return false;
+    }
+  }
+
+  /// Force API mode and reset fallback flags
+  Future<void> forceUseApiMode() async {
+    try {
+      _logger.i('Forcing use of API mode');
+      
+      // Reset the fallback mode flag
+      _useLocalFallback = false;
+      _hasAuthError = false;
+      _errorCount = 0;
+      
+      // Save preference
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('use_local_fallback', false);
+      
+      _logger.i('Fallback mode reset, will try using API on next request');
+    } catch (e) {
+      _logger.e('Error forcing API mode: $e');
+    }
+  }
+
   /// Check if the service is using local fallback mode
   bool isUsingFallbackMode() {
     return _useLocalFallback;

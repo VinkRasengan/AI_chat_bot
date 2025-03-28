@@ -152,10 +152,11 @@ class _HomePageState extends State<HomePage> {
         _chatSessions = chatSessions;
         _isLoading = false;
         
-        // If there are no sessions and we're not using direct Gemini API,
-        // don't show an error - this is normal for some models
-        if (_chatSessions.isEmpty && !_chatService.isUsingDirectGeminiApi()) {
+        // If there are no sessions, show the "no conversations" state
+        if (_chatSessions.isEmpty) {
           _noConversationsYet = true;
+        } else {
+          _noConversationsYet = false;
         }
       });
     } catch (e) {
@@ -164,7 +165,7 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
       
       // Don't show error for the specific conversation history limitation
-      if (e.toString().contains('does not support conversation history')) {
+      if (e.toString().toLowerCase().contains('does not support conversation history')) {
         setState(() {
           _isLoading = false;
           _noConversationsYet = true;
@@ -291,6 +292,86 @@ class _HomePageState extends State<HomePage> {
     }
   }
   
+  /// Check and fix API issues
+  Future<void> _checkAndFixApiIssues() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      _logger.i('Checking and fixing API issues');
+      
+      // Force the chat service to use API mode
+      final apiFixed = await _chatService.forceUseApiMode();
+      
+      if (apiFixed) {
+        _logger.i('API issues fixed, reloading sessions');
+        await _loadChatSessions();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('API connection restored. Chat history should now be saved.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      } else {
+        _logger.w('Could not fix API issues');
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not restore API connection. Chat history may not be saved.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      _logger.e('Error checking API issues: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  /// Force API mode and reload data
+  Future<void> _forceReconnect() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      _logger.i('Forcing API connectivity check and reset');
+      
+      // Reset fallback mode flags in chat service
+      await _chatService.forceUseApiMode();
+      
+      // Force auth state update
+      await _authService.forceAuthStateUpdate();
+      
+      // Reload data
+      await _loadChatSessions();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('API connection reset. Using online mode.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      _logger.e('Error forcing reconnect: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -300,6 +381,16 @@ class _HomePageState extends State<HomePage> {
           ModelSelectorWidget(
             currentModel: _selectedModel,
             onModelChanged: _updateSelectedModel,
+          ),
+          IconButton(
+            icon: const Icon(Icons.sync_problem),
+            tooltip: 'Fix API Issues',
+            onPressed: _checkAndFixApiIssues,
+          ),
+          IconButton(
+            icon: const Icon(Icons.cloud_sync),
+            tooltip: 'Force Online Mode',
+            onPressed: _forceReconnect,
           ),
         ],
       ),

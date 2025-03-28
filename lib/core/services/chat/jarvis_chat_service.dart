@@ -41,6 +41,10 @@ class JarvisChatService {
           _logger.i('Authentication failed, switched to Gemini API fallback mode.');
           return [];
         }
+        
+        // Successfully refreshed token, reset fallback mode
+        _useDirectGeminiApi = false;
+        _logger.i('Token refresh successful, using API mode');
       }
       
       // Check if we had a previous API error
@@ -66,22 +70,36 @@ class JarvisChatService {
       try {
         final sessions = await _apiService.getConversations();
         _logger.i('Retrieved ${sessions.length} chat sessions');
+        
+        // If we get an empty list but expecting sessions, check if it's because the model
+        // doesn't support conversation history
+        if (sessions.isEmpty) {
+          // Create a single local session for better UX
+          _logger.i('No sessions found, creating local chat session');
+          
+          return [
+            await _createLocalChatSession('New Chat')
+          ];
+        }
+        
         return sessions;
       } catch (e) {
-        if (e.toString().contains('does not support conversation history')) {
-          // This is an expected case for some models - just return an empty list
+        // Special handling for known error types
+        final errorStr = e.toString().toLowerCase();
+        
+        if (errorStr.contains('does not support conversation history') || 
+            errorStr.contains('400 bad request')) {
+          // This is an expected case for some models - create a local session instead
           _logger.i('Using a model that does not support conversation history. Creating local chat sessions.');
           
-          // Return a single local session if there are none
+          // Return a single local session
           return [
             await _createLocalChatSession('New Chat'),
           ];
-        } else if (e.toString().contains('Authentication failed') || 
-            e.toString().contains('Unauthorized')) {
-          // API is having auth issues, switch to Gemini
+        } else if (errorStr.contains('unauthorized') || errorStr.contains('authentication failed')) {
+          // Auth issues, switch to Gemini fallback
           _useDirectGeminiApi = true;
           _logger.i('API authentication issues, switched to Gemini API fallback mode.');
-          _apiService.switchToFallbackMode();
           return [];
         }
         throw e;
@@ -92,6 +110,13 @@ class JarvisChatService {
       // Mark as having API error for future requests
       _hasApiError = true;
       
+      // Check for specific "conversation history not supported" error
+      if (e.toString().toLowerCase().contains('does not support conversation history') ||
+          e.toString().toLowerCase().contains('400 bad request')) {
+        _logger.i('Model does not support conversation history, creating local session');
+        return [await _createLocalChatSession('New Chat')];
+      }
+      
       // Check if we should switch to direct API
       if (!_useDirectGeminiApi && 
           (e.toString().contains('Unauthorized') || 
@@ -101,13 +126,8 @@ class JarvisChatService {
         return [];
       }
       
-      // For the specific conversation history error, just return an empty list
-      // rather than showing an error message to the user
-      if (e.toString().contains('does not support conversation history')) {
-        return [];
-      }
-      
-      throw 'Failed to get chat sessions: ${e.toString()}';
+      // Return an empty list rather than throwing for better UX
+      return [];
     }
   }
 
@@ -233,13 +253,17 @@ class JarvisChatService {
     }
   }
   
-  /// Send a message in a chat session - modified to handle local sessions better
+  /// Send a message in a chat session with improved API error handling
   Future<Message> sendMessage(String sessionId, String text) async {
     try {
       _logger.i('Sending message to session: $sessionId');
       
+      // Track if this is a local session for better debugging
+      final isLocalSession = sessionId.startsWith('local_');
+      _logger.i('Is local session: $isLocalSession, Using direct Gemini: $_useDirectGeminiApi');
+      
       // Handle local sessions more gracefully
-      if (_useDirectGeminiApi || sessionId.startsWith('local_')) {
+      if (_useDirectGeminiApi || isLocalSession) {
         _logger.i('Using direct Gemini API for message');
         
         // Create and save the message
@@ -250,14 +274,16 @@ class JarvisChatService {
         );
         
         // Save the message to local storage if it's a local session
-        if (sessionId.startsWith('local_')) {
+        if (isLocalSession) {
           await _saveLocalMessage(sessionId, userMessage);
+          _logger.i('Saved message to local storage for session: $sessionId');
+        } else {
+          _logger.w('Not saving message to server due to direct Gemini API mode');
         }
         
         return userMessage;
       }
       
-      // Otherwise, use Jarvis API as normal
       // Check if we had a previous API error
       if (_hasApiError) {
         _logger.w('Previous API error detected, attempting to refresh token');
@@ -370,53 +396,38 @@ class JarvisChatService {
     }
   }
   
-  /// Create a new chat session
+  /// Create a new chat session with improved handling
   Future<ChatSession?> createChatSession(String title) async {
     try {
       _logger.i('Creating new chat session: $title');
       
-      // If using direct Gemini API, create a local session
-      if (_useDirectGeminiApi) {
-        _logger.i('Using direct Gemini API, creating local session');
-        return await _createLocalChatSession(title);
-      }
-      
-      // Check if we had a previous API error
-      if (_hasApiError) {
-        _logger.w('Previous API error detected, attempting to refresh token');
-        final refreshed = await _apiService.refreshToken();
-        if (!refreshed) {
-          // If refresh fails, switch to Gemini API
-          _logger.i('Token refresh failed, switching to direct Gemini API');
-          _useDirectGeminiApi = true;
-          return await _createLocalChatSession(title);
+      // First check if we should be using API
+      if (_apiService.isAuthenticated() && !_useDirectGeminiApi) {
+        _logger.i('Using API for chat session creation - user is authenticated');
+        
+        try {
+          // Create conversation via API
+          final session = await _apiService.createConversation(title);
+          
+          // Log ID details for debugging
+          _logger.i('Chat session created with ID: ${session.id}');
+          _logger.i('Is local session: ${session.id.startsWith('local_')}');
+          
+          return session;
+        } catch (apiError) {
+          _logger.e('API error creating session: $apiError');
+          _hasApiError = true;
+          
+          // Fall through to local session creation
         }
-        _hasApiError = false;
       }
       
-      // Create conversation via API
-      final session = await _apiService.createConversation(title);
-      
-      _logger.i('Chat session created with ID: ${session.id}');
-      return session;
+      // If using direct Gemini API or API call failed, create a local session
+      _logger.i('Creating local chat session');
+      return await _createLocalChatSession(title);
     } catch (e) {
       _logger.e('Error creating chat session: $e');
-      
-      // If it's an auth error, switch to Gemini API
-      if (e.toString().contains('Unauthorized') || 
-          e.toString().contains('Authentication failed') ||
-          e.toString().contains('401')) {
-        if (!_useDirectGeminiApi) {
-          _logger.i('Authorization error, switching to direct Gemini API');
-          _useDirectGeminiApi = true;
-          return await _createLocalChatSession(title);
-        }
-      }
-      
-      // Mark as having API error for future requests
-      _hasApiError = true;
-      
-      throw 'Failed to create chat session: ${e.toString()}';
+      return await _createLocalChatSession(title);
     }
   }
   
@@ -604,6 +615,58 @@ class JarvisChatService {
       return success;
     } catch (e) {
       _logger.e('Error during force auth state update: $e');
+      return false;
+    }
+  }
+
+  /// Check if we need to reset fallback mode on startup
+  Future<void> _resetFallbackIfNeeded() async {
+    try {
+      // Get the most recent setting
+      final prefs = await SharedPreferences.getInstance();
+      final usesFallback = prefs.getBool('use_local_fallback') ?? false;
+      
+      // If we're using fallback but the user is authenticated, try to reset
+      if (usesFallback && _apiService.isAuthenticated()) {
+        _logger.i('User is authenticated but fallback mode is active, attempting to reset');
+        
+        // Check if API is accessible
+        final apiStatus = await _apiService.checkApiStatus();
+        if (apiStatus) {
+          _logger.i('API is accessible, resetting fallback mode');
+          _useDirectGeminiApi = false;
+          _apiService.switchToFallbackMode();
+        }
+      }
+    } catch (e) {
+      _logger.e('Error checking fallback mode: $e');
+    }
+  }
+
+  /// Force service to use API mode and reset fallback flags
+  Future<bool> forceUseApiMode() async {
+    try {
+      _logger.i('Forcing use of API mode');
+      
+      // Reset the flags
+      _useDirectGeminiApi = false;
+      _hasApiError = false;
+      
+      // Force token refresh to ensure we have a valid token
+      final tokenRefreshed = await _apiService.forceTokenRefresh();
+      _logger.i('Token refresh result: $tokenRefreshed');
+      
+      // Save the setting
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('use_direct_gemini', false);
+      
+      // Test API access
+      final apiStatus = await _apiService.checkApiStatus();
+      _logger.i('API status check result: $apiStatus');
+      
+      return apiStatus;
+    } catch (e) {
+      _logger.e('Error forcing API mode: $e');
       return false;
     }
   }

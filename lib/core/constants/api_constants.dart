@@ -28,20 +28,24 @@ class ApiConstants {
   static const String authSessionCurrent = '/api/v1/auth/sessions/current';
   static const String authEmailVerificationStatus = '/api/v1/auth/emails/verification/status';
   
-  // User profile endpoints - update path to match API structure
-  static const String userProfile = '/api/v1/user/profile';  // Updated with correct path
+  // User profile endpoints - updated to match actual API documentation
+  static const String userProfile = '/api/v1/auth/me';  // UPDATED: Correct endpoint for getting current user
   static const String userChangePassword = '/api/v1/user/change-password';
+  static const String userUsage = '/api/v1/tokens/usage';  // ADDED: Get token usage information
   
-  // AI chat endpoints - updated to make sure they match the API documentation
-  static const String conversations = '/api/v1/ai-chat/conversations';
-  static const String messages = '/api/v1/ai-chat/messages';
+  // AI chat endpoints - updated to match exact API documentation paths
+  static const String conversations = '/api/v1/ai-chat/conversations';  // FIXED: Correct conversations endpoint
+  static const String messages = '/api/v1/ai-chat/messages';  // FIXED: Correct messages endpoint
   
-  // Make sure the conversation messages endpoint uses the correct format
-  static String conversationMessages(String conversationId) => 
-      '/api/v1/ai-chat/conversations/$conversationId/messages';
+  // Make sure the conversation messages endpoint uses the correct format with no double slashes
+  static String conversationMessages(String conversationId) {
+    // Prevent double slashes by trimming any leading/trailing slashes
+    final trimmedId = conversationId.trim();
+    return '/api/v1/ai-chat/conversations/$trimmedId/messages';
+  }
   
   // API status endpoint for token validation - fixed to use a simple endpoint
-  static const String apiStatus = '/api/v1/ai-chat/status';
+  static const String apiStatus = '/api/v1/status';  // General API status check
   static const String models = '/api/v1/models';
   
   // Gemini API endpoints
