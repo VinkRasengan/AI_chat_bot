@@ -34,11 +34,24 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _loadModel();
-    // Don't call _loadMessages here - it causes Flutter framework error
-    // when using ScaffoldMessenger in initState
+    
+    // Show warning if using a model that doesn't support history
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Call _loadMessages after the build is complete
       _loadMessages();
+      
+      // Check if this is a local session due to model limitations
+      final isLocalSession = widget.chatSession.id.startsWith('local_');
+      final isNoHistoryModel = widget.chatSession.metadata != null && 
+                              widget.chatSession.metadata!['noHistorySupport'] == true;
+      
+      if (isLocalSession && isNoHistoryModel && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Using local mode: The current model doesn\'t support server-side chat history.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     });
   }
   
@@ -262,10 +275,20 @@ class _ChatScreenState extends State<ChatScreen> {
   
   @override
   Widget build(BuildContext context) {
+    // Check if this is a local session due to model limitations
+    final isLocalSession = widget.chatSession.id.startsWith('local_');
+    final isNoHistoryModel = widget.chatSession.metadata != null && 
+                            widget.chatSession.metadata!['noHistorySupport'] == true;
+    
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.chatSession.title),
         actions: [
+          if (isLocalSession && isNoHistoryModel)
+            Tooltip(
+              message: 'This model doesn\'t support server-side chat history',
+              child: const Icon(Icons.info_outline, color: Colors.amber),
+            ),
           ModelSelectorWidget(
             currentModel: _currentModel,
             onModelChanged: _onModelChanged,

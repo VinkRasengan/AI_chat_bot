@@ -12,6 +12,8 @@ class ApiConstants {
   static const String knowledgeApiUrl = 'https://knowledge-api.dev.jarvis.cx';  // Already using dev knowledge API URL
   
   // Gemini API configuration
+  // SECURITY: Consider moving this API key to environment variables
+  // or a secure storage mechanism instead of hardcoding it
   static const String geminiApiKey = 'AIzaSyClkVxfV1SMF7iORASUZGVPa2HoIIa5KEk';
   static const String geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta';
   
@@ -62,6 +64,15 @@ class ApiConstants {
     'gpt-4o-mini': 'GPT-4o Mini',
   };
   
+  // Model capabilities lookup - track which models support conversation history
+  static const Map<String, bool> modelSupportsConversationHistory = {
+    'gemini-1.5-flash-latest': false, // Gemini models typically don't support history through the API
+    'gemini-1.5-pro-latest': false,
+    'claude-3-5-sonnet-20240620': true,
+    'gpt-4o': true,
+    'gpt-4o-mini': true,
+  };
+
   // Storage keys
   static const String accessTokenKey = 'jarvis_access_token';
   static const String refreshTokenKey = 'jarvis_refresh_token';

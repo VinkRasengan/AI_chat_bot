@@ -52,6 +52,15 @@ class AiChatService {
     }
     
     try {
+      // Check if selected model supports conversation history
+      final model = await getSelectedModel();
+      final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
+      
+      if (!supportsHistory) {
+        _logger.i('Selected model does not support conversation history, returning empty list');
+        return [];
+      }
+      
       // Reset fallback mode if we're attempting an API call
       // This ensures we can recover from temporary failures
       _useLocalFallback = false;
@@ -485,7 +494,21 @@ class AiChatService {
         await _authService.refreshToken();
       }
       
-      // Use the exact endpoint from constants
+      // Check if selected model supports conversation history
+      final model = await getSelectedModel();
+      final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
+      
+      if (!supportsHistory) {
+        _logger.i('Selected model does not support conversation history, creating local session');
+        return ChatSession(
+          id: 'local_${DateTime.now().millisecondsSinceEpoch}',
+          title: title.isEmpty ? 'New Chat' : title,
+          createdAt: DateTime.now(),
+          metadata: {'localOnly': true, 'noHistorySupport': true},
+        );
+      }
+      
+      // Use the exact endpoint from constants - make sure path is correctly formed
       final uri = Uri.parse('$_jarvisApiUrl${ApiConstants.conversations}');
       
       final requestBody = {
@@ -500,6 +523,11 @@ class AiChatService {
       
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _hasAuthError);
+      // Add x-jarvis-guid header
+      headers['x-jarvis-guid'] = '';
+      
+      _logger.i('Creating conversation with URI: $uri');
+      _logger.i('Request body: ${jsonEncode(requestBody)}');
       
       final response = await http.post(
         uri,

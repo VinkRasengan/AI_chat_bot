@@ -4,6 +4,7 @@ import '../../../core/models/chat/chat_session.dart';
 import '../../../core/services/chat/jarvis_chat_service.dart';
 import '../../../core/services/auth/auth_service.dart';
 import '../../../widgets/ai/model_selector_widget.dart';
+import '../../../core/constants/api_constants.dart'; // Add this import
 import '../../settings/presentation/settings_page.dart';
 import '../../account/presentation/account_management_page.dart';
 import '../../support/presentation/help_feedback_page.dart';
@@ -144,6 +145,24 @@ class _HomePageState extends State<HomePage> {
     try {
       _logger.i('Loading chat sessions');
       
+      // Check if selected model supports conversation history
+      final model = await _chatService.getSelectedModel();
+      final supportsHistory = ApiConstants.modelSupportsConversationHistory[model ?? ''] ?? false;
+      
+      if (!supportsHistory && mounted) {
+        // Show message about model limitation
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Current model does not support conversation history. Using local chat mode.'),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          }
+        });
+      }
+      
       final chatSessions = await _chatService.getUserChatSessions();
       
       if (!mounted) return;
@@ -164,12 +183,25 @@ class _HomePageState extends State<HomePage> {
       
       if (!mounted) return;
       
-      // Don't show error for the specific conversation history limitation
-      if (e.toString().toLowerCase().contains('does not support conversation history')) {
+      // Special case for conversation history limitation
+      if (e.toString().toLowerCase().contains('does not support conversation history') ||
+          e.toString().toLowerCase().contains('400 bad request')) {
         setState(() {
           _isLoading = false;
           _noConversationsYet = true;
         });
+        
+        // Show a more helpful message about the model limitation
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('The selected model ($_selectedModel) does not support conversation history. Chat history will be stored locally.'),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          });
+        }
         return;
       }
       
@@ -264,9 +296,19 @@ class _HomePageState extends State<HomePage> {
       
       if (!mounted) return;
       
+      // Check if the selected model supports conversation history
+      final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Model updated to $model')),
+        SnackBar(
+          content: Text('Model updated to $model' + 
+                       (supportsHistory ? '' : ' (Local chat mode - history not saved on server)')),
+          duration: const Duration(seconds: 4),
+        ),
       );
+      
+      // Reload sessions after model change
+      _loadChatSessions();
     } catch (e) {
       _logger.e('Error updating model: $e');
       

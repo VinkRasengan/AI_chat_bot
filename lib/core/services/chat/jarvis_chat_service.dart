@@ -66,6 +66,15 @@ class JarvisChatService {
         return [];
       }
       
+      // Check if selected model supports conversation history
+      final model = await getSelectedModel();
+      final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
+      
+      if (!supportsHistory) {
+        _logger.i('Selected model (${model}) does not support conversation history, creating local session');
+        return [await _createLocalChatSession('New Chat')];
+      }
+      
       // Get conversations from API
       try {
         final sessions = await _apiService.getConversations();
@@ -110,8 +119,9 @@ class JarvisChatService {
       // Mark as having API error for future requests
       _hasApiError = true;
       
-      // Check for specific "conversation history not supported" error
+      // Check for specific "conversation history not supported" error pattern - expanded to catch more variants
       if (e.toString().toLowerCase().contains('does not support conversation history') ||
+          e.toString().toLowerCase().contains('conversation history not supported') ||
           e.toString().toLowerCase().contains('400 bad request')) {
         _logger.i('Model does not support conversation history, creating local session');
         return [await _createLocalChatSession('New Chat')];
@@ -131,12 +141,19 @@ class JarvisChatService {
     }
   }
 
-  // Add a method to create a local session when using direct Gemini API
+  // Enhance local chat session to indicate it's due to model limitations
   Future<ChatSession> _createLocalChatSession(String title) async {
+    // Get current model for reference
+    final model = await getSelectedModel();
     return ChatSession(
       id: 'local_${DateTime.now().millisecondsSinceEpoch}',
       title: title.isEmpty ? 'New Chat' : title,
       createdAt: DateTime.now(),
+      metadata: {
+        'localOnly': true, 
+        'noHistorySupport': !(ApiConstants.modelSupportsConversationHistory[model] ?? false), // Fixed nullable expression
+        'model': model
+      },
     );
   }
 
