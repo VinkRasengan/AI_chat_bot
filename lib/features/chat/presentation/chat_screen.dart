@@ -27,15 +27,24 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoading = true;
   bool _isSending = false;
   String _currentModel = 'gemini-1.5-flash-latest';
+  String? _errorMessage;
+  bool _waitingForResponse = false;
   
   @override
   void initState() {
     super.initState();
-    _loadMessages();
     _loadModel();
+    // Don't call _loadMessages here - it causes Flutter framework error
+    // when using ScaffoldMessenger in initState
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Call _loadMessages after the build is complete
+      _loadMessages();
+    });
   }
   
   Future<void> _loadMessages() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
     });
@@ -49,14 +58,18 @@ class _ChatScreenState extends State<ChatScreen> {
         // In fallback mode, we don't have persistent history
         setState(() {
           _isLoading = false;
-          if (_messages.isEmpty) {
-            // Show an informative message for the user
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Using offline mode. Chat history is not available.'),
-                duration: Duration(seconds: 5),
-              ),
-            );
+          if (_messages.isEmpty && mounted) {
+            // Show an informative message for the user - moved to postBuild callback
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Using offline mode. Chat history is not available.'),
+                    duration: Duration(seconds: 5),
+                  ),
+                );
+              }
+            });
           }
         });
         return;
@@ -73,26 +86,33 @@ class _ChatScreenState extends State<ChatScreen> {
         _logger.i('Chat diagnostics: $diagnostics');
         
         // If API is having auth issues but we're not in fallback mode yet
-        if (diagnostics['hasApiError'] == true && !isUsingGemini) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Unable to load chat history. There might be an authentication issue.'),
-              duration: Duration(seconds: 5),
-            ),
-          );
+        if (diagnostics['hasApiError'] == true && !isUsingGemini && mounted) {
+          // Moved to postBuild callback
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Unable to load chat history. There might be an authentication issue.'),
+                  duration: Duration(seconds: 5),
+                ),
+              );
+            }
+          });
         }
       }
       
-      setState(() {
-        _messages = messages;
-        _isLoading = false;
-      });
-      
-      // Scroll to bottom after loading messages
-      if (_messages.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToBottom();
+      if (mounted) {
+        setState(() {
+          _messages = messages;
+          _isLoading = false;
         });
+        
+        // Scroll to bottom after loading messages
+        if (_messages.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _scrollToBottom();
+          });
+        }
       }
     } catch (e) {
       _logger.e('Error loading messages: $e');
@@ -116,9 +136,14 @@ class _ChatScreenState extends State<ChatScreen> {
         // Add empty state or error state UI
       });
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(userMessage)),
-      );
+      // Moved to postBuild callback
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(userMessage)),
+          );
+        }
+      });
     }
   }
   
@@ -138,119 +163,81 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
-    
-    _messageController.clear();
-    
-    // Optimistically add user message to UI
+
     setState(() {
-      _messages.add(Message(
+      _isLoading = true;
+      _errorMessage = null;
+      _messageController.clear();
+    });
+
+    try {
+      // Create a temporary message to show immediately
+      final tempMessage = Message(
         text: text,
         isUser: true,
         timestamp: DateTime.now(),
-      ));
-      _isSending = true;
-    });
-    
-    // Scroll to bottom
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
-    
-    try {
-      // Add temporary "typing" message
-      setState(() {
-        _messages.add(Message(
-          text: '...',
-          isUser: false,
-          timestamp: DateTime.now(),
-          isTyping: true,
-        ));
-      });
-      
-      // Scroll to bottom again
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToBottom();
-      });
-      
-      // Send message to service - don't store return value since we're not using it
-      await _chatService.sendMessage(
-        widget.chatSession.id, 
-        text,
       );
       
-      // Get AI response - we need to wait for it separately
-      String aiResponse;
-      
-      // If using direct Gemini API, generate response directly
-      if (_chatService.isUsingDirectGeminiApi()) {
-        // Convert message history to format for Gemini API
-        final chatHistory = _messages
-            .where((m) => !m.isTyping)
-            .take(10)
-            .map((msg) => {
-                'role': msg.isUser ? 'user' : 'assistant',
-                'content': msg.text,
-              })
-            .toList();
-        
-        // Get response from Gemini directly
-        aiResponse = await _chatService.getDirectAIResponse(text, chatHistory);
-      } else {
-        // For Jarvis API, wait a moment and load new messages
-        await Future.delayed(const Duration(milliseconds: 800));
-        final freshMessages = await _chatService.getMessages(widget.chatSession.id);
-        
-        // Find the AI response message (most recent non-user message)
-        final aiMessages = freshMessages
-            .where((m) => !m.isUser)
-            .toList();
-        
-        if (aiMessages.isNotEmpty) {
-          aiResponse = aiMessages.last.text;
-        } else {
-          aiResponse = "Sorry, I couldn't generate a response at this time.";
-        }
-      }
-      
-      if (!mounted) return;
-      
-      // Remove typing indicator and add real response
       setState(() {
-        // Remove typing indicator
-        _messages.removeWhere((message) => message.isTyping);
-        
-        // Add AI response message
-        _messages.add(Message(
-          text: aiResponse,
-          isUser: false,
-          timestamp: DateTime.now(),
-        ));
-        
-        _isSending = false;
+        _messages.add(tempMessage);
       });
       
+      // Send the message
+      final userMessage = await _chatService.sendMessage(widget.chatSession.id, text);
+      
+      // Check if the session is using local fallback mode
+      final isLocalSession = widget.chatSession.id.startsWith('local_') || 
+                            _chatService.isUsingDirectGeminiApi();
+      
+      if (isLocalSession) {
+        // For local sessions, we need to generate a response using Gemini API directly
+        setState(() {
+          _waitingForResponse = true;
+        });
+        
+        // Convert previous messages to a format Gemini can use
+        final chatHistory = _messages
+            .take(_messages.length - 1) // Exclude the message we just added
+            .map((msg) => {
+              'role': msg.isUser ? 'user' : 'assistant',
+              'content': msg.text,
+            })
+            .toList();
+        
+        // Get AI response using direct Gemini API
+        final response = await _chatService.getDirectAIResponse(text, chatHistory);
+        
+        setState(() {
+          _waitingForResponse = false;
+          
+          // Add AI response message
+          _messages.add(Message(
+            text: response,
+            isUser: false,
+            timestamp: DateTime.now(),
+          ));
+        });
+      } else {
+        // For Jarvis API sessions, refresh messages to get the AI response
+        final messages = await _chatService.getMessages(widget.chatSession.id);
+        
+        setState(() {
+          _messages = messages;
+        });
+      }
+      
+      // Scroll to the bottom
       _scrollToBottom();
     } catch (e) {
       _logger.e('Error sending message: $e');
       
-      if (!mounted) return;
-      
-      // Remove typing indicator
       setState(() {
-        _messages.removeWhere((message) => message.isTyping);
-        _isSending = false;
+        _errorMessage = 'Failed to send message: ${e.toString()}';
       });
-      
-      // Add error message as bot response
+    } finally {
       setState(() {
-        _messages.add(Message(
-          text: 'Đã xảy ra lỗi: ${e.toString()}',
-          isUser: false,
-          timestamp: DateTime.now(),
-        ));
+        _isLoading = false;
       });
-      
-      _scrollToBottom();
     }
   }
   

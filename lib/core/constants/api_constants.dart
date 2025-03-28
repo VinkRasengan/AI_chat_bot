@@ -32,13 +32,16 @@ class ApiConstants {
   static const String userProfile = '/api/v1/user/profile';  // Updated with correct path
   static const String userChangePassword = '/api/v1/user/change-password';
   
-  // AI chat endpoints - use consistent paths that match the API documentation
+  // AI chat endpoints - updated to make sure they match the API documentation
   static const String conversations = '/api/v1/ai-chat/conversations';
   static const String messages = '/api/v1/ai-chat/messages';
-  static const String conversationMessages = '/api/v1/ai-chat/conversations/{conversationId}/messages';
   
-  // API status endpoint for token validation
-  static const String apiStatus = '/api/v1/status';
+  // Make sure the conversation messages endpoint uses the correct format
+  static String conversationMessages(String conversationId) => 
+      '/api/v1/ai-chat/conversations/$conversationId/messages';
+  
+  // API status endpoint for token validation - fixed to use a simple endpoint
+  static const String apiStatus = '/api/v1/ai-chat/status';
   static const String models = '/api/v1/models';
   
   // Gemini API endpoints

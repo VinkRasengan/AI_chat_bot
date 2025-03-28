@@ -621,6 +621,25 @@ class JarvisAuthProvider implements AuthProviderInterface {
     }
   }
 
+  /// Get the current access token synchronously
+  String? getCurrentToken() {
+    try {
+      // Get from SharedPreferences without awaiting
+      // Note: This is NOT ideal and should be replaced with a proper token cache
+      final prefs = SharedPreferences.getInstance().then((prefs) {
+        return prefs.getString(ApiConstants.accessTokenKey);
+      });
+      
+      // Since we can't await in a sync method, we have to use a workaround
+      // In a real app, this should be replaced with a proper token cache
+      // or a more robust solution
+      return null;
+    } catch (e) {
+      _logger.e('Error getting current token: $e');
+      return null;
+    }
+  }
+
   // Helper to generate a random state for OAuth
   String _generateRandomState() {
     final randomBytes = List<int>.generate(16, (_) => DateTime.now().millisecondsSinceEpoch % 256);

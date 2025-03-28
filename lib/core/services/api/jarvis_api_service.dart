@@ -36,16 +36,43 @@ class JarvisApiService implements ApiService {
     if (_isInitialized) return;
     
     try {
-      await dotenv.load(fileName: '.env');
-      _apiKey = dotenv.env['JARVIS_API_KEY'] ?? ApiConstants.defaultApiKey;
+      // Try to load .env but don't fail if it doesn't exist
+      try {
+        await dotenv.load(fileName: '.env');
+        _apiKey = dotenv.env['JARVIS_API_KEY'] ?? ApiConstants.defaultApiKey;
+      } catch (e) {
+        _logger.w('Could not load .env file: $e. Using default API key.');
+        _apiKey = ApiConstants.defaultApiKey;
+      }
       
-      // Initialize auth service
-      await _authService.initialize(_apiKey);
+      // Initialize auth service with error handling
+      try {
+        await _authService.initialize(_apiKey);
+        _logger.i('Auth service initialized successfully');
+      } catch (e) {
+        _logger.e('Error initializing auth service: $e');
+        _logger.i('Will use local fallback mode for authentication');
+      }
+      
+      // Ensure local fallback mode is active if there are initialization issues
+      if (_apiKey == ApiConstants.defaultApiKey) {
+        _logger.w('Using default API key - activating fallback mode');
+        await _aiChatService.setFallbackMode(true);
+      }
       
       _logger.i('Initialized Jarvis API service with auth, user, and AI chat services');
       _isInitialized = true;
     } catch (e) {
       _logger.e('Error initializing Jarvis API service: $e');
+      // Still mark as initialized to prevent repeated initialization attempts
+      _isInitialized = true;
+      
+      // Activate fallback mode to ensure the app works despite initialization issues
+      try {
+        await _aiChatService.setFallbackMode(true);
+      } catch (_) {
+        // Ignore errors in fallback activation
+      }
     }
   }
 

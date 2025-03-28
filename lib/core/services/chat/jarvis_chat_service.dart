@@ -137,7 +137,9 @@ class JarvisChatService {
       if (sessionId.startsWith('local_')) {
         _logger.i('Local session ID detected, returning empty messages (fallback mode)');
         _apiRecursionCount = 0;
-        return [];
+        
+        // Load saved local messages if available
+        return await _loadLocalMessages(sessionId);
       }
       
       // First check if the API service is authenticated
@@ -227,25 +229,32 @@ class JarvisChatService {
       // Mark as having API error for future requests
       _hasApiError = true;
       
-      throw 'Failed to get messages: ${e.toString()}';
+      return []; // Return empty list instead of throwing to improve UX
     }
   }
   
-  /// Send a message in a chat session - modified to optionally use direct Gemini API
+  /// Send a message in a chat session - modified to handle local sessions better
   Future<Message> sendMessage(String sessionId, String text) async {
     try {
       _logger.i('Sending message to session: $sessionId');
       
-      // Check if we should use direct Gemini API
-      if (_useDirectGeminiApi) {
+      // Handle local sessions more gracefully
+      if (_useDirectGeminiApi || sessionId.startsWith('local_')) {
         _logger.i('Using direct Gemini API for message');
         
-        // Just return the user message, response will be generated separately
-        return Message(
+        // Create and save the message
+        final userMessage = Message(
           text: text,
           isUser: true,
           timestamp: DateTime.now(),
         );
+        
+        // Save the message to local storage if it's a local session
+        if (sessionId.startsWith('local_')) {
+          await _saveLocalMessage(sessionId, userMessage);
+        }
+        
+        return userMessage;
       }
       
       // Otherwise, use Jarvis API as normal
@@ -278,18 +287,70 @@ class JarvisChatService {
       if (!_useDirectGeminiApi) {
         _logger.i('Switching to direct Gemini API due to error');
         _useDirectGeminiApi = true;
-        
-        return Message(
-          text: text,
-          isUser: true,
-          timestamp: DateTime.now(),
-        );
       }
       
-      // Mark as having API error for future requests
-      _hasApiError = true;
+      // Always return a message to maintain UX
+      final fallbackMessage = Message(
+        text: text,
+        isUser: true,
+        timestamp: DateTime.now(),
+      );
       
-      throw 'Failed to send message: ${e.toString()}';
+      // Try to save the message locally
+      if (sessionId.startsWith('local_')) {
+        await _saveLocalMessage(sessionId, fallbackMessage);
+      }
+      
+      return fallbackMessage;
+    }
+  }
+
+  // Add helper methods for local message storage
+  Future<void> _saveLocalMessage(String sessionId, Message message) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Get existing messages
+      final List<String> existingMessages = prefs.getStringList(sessionId) ?? [];
+      
+      // Add the new message
+      existingMessages.add(message.toJson());
+      
+      // Save back to preferences
+      await prefs.setStringList(sessionId, existingMessages);
+      
+      _logger.i('Saved message to local storage for session: $sessionId');
+    } catch (e) {
+      _logger.e('Error saving local message: $e');
+    }
+  }
+
+  Future<List<Message>> _loadLocalMessages(String sessionId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Get saved messages
+      final List<String> savedMessages = prefs.getStringList(sessionId) ?? [];
+      
+      if (savedMessages.isEmpty) {
+        return [];
+      }
+      
+      // Convert JSON strings to Message objects
+      final messages = savedMessages.map((json) {
+        try {
+          return Message.fromJson(json);
+        } catch (e) {
+          _logger.e('Error parsing saved message: $e');
+          return null;
+        }
+      }).whereType<Message>().toList();
+      
+      _logger.i('Loaded ${messages.length} messages from local storage for session: $sessionId');
+      return messages;
+    } catch (e) {
+      _logger.e('Error loading local messages: $e');
+      return [];
     }
   }
   

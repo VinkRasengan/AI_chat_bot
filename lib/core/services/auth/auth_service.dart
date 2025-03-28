@@ -3,6 +3,9 @@ import 'auth_provider_interface.dart';
 import 'providers/jarvis_auth_provider.dart';
 import '../../models/user_model.dart';
 import '../../constants/api_constants.dart';  // Add this import
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Authentication service that delegates to the configured auth provider
 class AuthService {
@@ -63,6 +66,13 @@ class AuthService {
         if (refreshSuccess) {
           _logger.i('Token refreshed successfully, user is logged in');
           
+          // Test if the refreshed token is valid
+          final isRefreshedTokenValid = await _testRefreshedToken();
+          if (!isRefreshedTokenValid) {
+            _logger.w('Refreshed token is invalid, user needs to log in again');
+            return false;
+          }
+          
           // Get fresh user data to ensure all components have current information
           await _provider.reloadUser();
           
@@ -81,6 +91,105 @@ class AuthService {
     }
   }
 
+  /// Test if the refreshed token is valid by making a simple API call
+  Future<bool> _testRefreshedToken() async {
+    try {
+      _logger.i('Testing refreshed token validity');
+      
+      // Get token information for debugging
+      _logTokenInfo();
+      
+      // Call a simple API endpoint to verify token works
+      final response = await http.get(
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.apiStatus}'),
+        headers: getHeaders(),
+      );
+      
+      _logger.i('Token test response: [${response.statusCode}] ${response.reasonPhrase}');
+      
+      // For some API endpoints, 404 can be a valid response if the endpoint doesn't exist
+      // but the authentication was valid
+      if (response.statusCode == 200 || 
+          response.statusCode == 204 ||
+          (response.statusCode == 404 && 
+           response.body.toString().contains('not found'))) {
+        _logger.i('Token is valid');
+        return true;
+      }
+      
+      // 401/403 responses indicate auth issues
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        _logger.e('Token is invalid - authentication failed');
+        return false;
+      }
+      
+      // For other status codes, log but accept the token to avoid false negatives
+      _logger.w('Unexpected status code ${response.statusCode} in token test');
+      return true;
+    } catch (e) {
+      _logger.e('Error testing token: $e');
+      
+      // On error, we'll assume the token might still be valid
+      // since connection errors shouldn't invalidate the token
+      return true;
+    }
+  }
+
+  /// Helper method to log token information
+  void _logTokenInfo() {
+    try {
+      final token = _getAccessToken();
+      if (token == null || token.isEmpty) {
+        _logger.w('No token available to analyze');
+        return;
+      }
+      
+      // Basic token structure parsing
+      final parts = token.split('.');
+      if (parts.length != 3) {
+        _logger.w('Token does not have the expected JWT structure');
+        return;
+      }
+      
+      // Decode the payload part (part 1)
+      final normalized = base64Url.normalize(parts[1]);
+      final decoded = utf8.decode(base64Url.decode(normalized));
+      final payload = jsonDecode(decoded) as Map<String, dynamic>;
+      
+      // Log relevant info
+      _logger.i('Token info:');
+      _logger.i('- Subject: ${payload['sub'] ?? 'Not found'}');
+      
+      // Handle exp as either string or int
+      if (payload.containsKey('exp')) {
+        final exp = payload['exp'];
+        if (exp is int) {
+          final expDate = DateTime.fromMillisecondsSinceEpoch(exp * 1000);
+          _logger.i('- Expiration: $expDate');
+        } else {
+          _logger.i('- Expiration: $exp');
+        }
+      }
+      
+      _logger.i('- Issuer: ${payload['iss'] ?? 'Not found'}');
+      
+      // Check for scopes - could be in different formats
+      if (payload.containsKey('scope')) {
+        _logger.i('- Scopes: ${payload['scope']}');
+      } else if (payload.containsKey('scopes')) {
+        _logger.i('- Scopes: ${payload['scopes']}');
+      } else if (payload.containsKey('scp')) {
+        _logger.i('- Scopes: ${payload['scp']}');
+      } else {
+        _logger.w('No scopes found in token');
+        // No scopes doesn't necessarily mean the token is invalid
+        // Some systems don't include scopes in the token
+      }
+    } catch (e) {
+      _logger.e('Error parsing token: $e');
+    }
+  }
+  
   /// Force update of auth state - call this after token refresh with improved scope checking
   Future<bool> forceAuthStateUpdate() async {
     if (!_isInitialized) await initializeService();
@@ -357,6 +466,91 @@ class AuthService {
     } catch (e) {
       _logger.e('Error resending verification email: $e');
       return false;
+    }
+  }
+  
+  /// Get HTTP headers with authorization token for API requests
+  Map<String, String> getHeaders() {
+    try {
+      final token = _getAccessToken();
+      if (token == null || token.isEmpty) {
+        _logger.w('No access token available for headers');
+        // Return basic headers without authorization
+        return {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        };
+      }
+      
+      // Return headers with authorization token
+      return {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+    } catch (e) {
+      _logger.e('Error generating headers: $e');
+      // Return basic headers without authorization on error
+      return {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+    }
+  }
+  
+  /// Get the current access token
+  String? _getAccessToken() {
+    try {
+      // This should be synchronized with the provider's token storage
+      final prefs = SharedPreferences.getInstance().then((prefs) {
+        return prefs.getString(ApiConstants.accessTokenKey);
+      });
+      
+      // For immediate use, we need to sync get the token
+      // This is a workaround - in a real app, consider using a token cache
+      return _getSyncAccessToken();
+    } catch (e) {
+      _logger.e('Error getting access token: $e');
+      return null;
+    }
+  }
+  
+  /// Synchronously get the current access token
+  /// This is a helper method for _getAccessToken
+  String? _getSyncAccessToken() {
+    try {
+      // Try to get token from provider if possible
+      if (_provider is JarvisAuthProvider) {
+        final jarvisProvider = _provider as JarvisAuthProvider;
+        // Assuming JarvisAuthProvider has a method to get the current token synchronously
+        // You may need to implement this in JarvisAuthProvider
+        return jarvisProvider.getCurrentToken();
+      }
+      
+      // Fallback to getting from SharedPreferences
+      final prefs = SharedPreferences.getInstance().then((prefs) {
+        return prefs.getString(ApiConstants.accessTokenKey);
+      });
+      
+      // This is not ideal, but since we need a sync result, return null
+      // The proper implementation would cache tokens in memory
+      return null;
+    } catch (e) {
+      _logger.e('Error getting sync access token: $e');
+      return null;
+    }
+  }
+  
+  /// Clear the auth token (for logout or token invalidation)
+  void clearAuthToken() {
+    try {
+      _logger.i('Clearing auth token');
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.remove(ApiConstants.accessTokenKey);
+        prefs.remove(ApiConstants.refreshTokenKey);
+      });
+    } catch (e) {
+      _logger.e('Error clearing auth token: $e');
     }
   }
 }

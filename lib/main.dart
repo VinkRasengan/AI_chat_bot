@@ -23,14 +23,23 @@ void main() async {
     logger.i('Using default constants for API configuration');
   }
   
-  // Log that we're using hardcoded constants for Stack Auth
-  logger.i('Using Stack Project ID: ${ApiConstants.stackProjectId.substring(0, 8)}...');
+  // Initialize platform services - add error handling
+  try {
+    await PlatformServiceHelper.instance.initialize();
+    logger.i('Platform services initialized successfully');
+  } catch (e) {
+    logger.e('Error initializing platform services: $e');
+    logger.i('Application will continue with limited functionality');
+  }
   
-  // Initialize platform services
-  await PlatformServiceHelper.instance.initialize();
-  
-  // Initialize the auth service (now using Jarvis)
-  await AuthService().initializeService();
+  // Initialize the auth service with better error handling
+  try {
+    await AuthService().initializeService();
+    logger.i('Auth service initialized successfully');
+  } catch (e) {
+    logger.e('Error initializing auth service: $e');
+    logger.i('Application will use local fallback mode');
+  }
   
   runApp(const MyApp());
 }
@@ -102,30 +111,33 @@ class _AuthCheckPageState extends State<AuthCheckPage> {
   Future<void> _checkAuthStatus() async {
     try {
       _logger.i('Checking authentication status...');
+      
+      setState(() {
+        _isLoading = true;
+      });
+      
       final isLoggedIn = await _authService.isLoggedIn();
       
       if (!mounted) return;
       
       if (isLoggedIn) {
-        _logger.i('User is logged in, navigating to home page');
-        Navigator.of(context).pushReplacement(
+        _logger.i('User is authenticated, navigating to home page');
+        Navigator.pushReplacement(
+          context,
           MaterialPageRoute(builder: (context) => const HomePage()),
         );
       } else {
-        _logger.i('User is not logged in, navigating to login page');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-        );
+        _logger.i('User is not authenticated, navigating to login page');
+        Navigator.pushReplacementNamed(context, '/login');
       }
     } catch (e) {
       _logger.e('Error checking auth status: $e');
       
       if (!mounted) return;
       
-      // On error, default to login page
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const LoginPage()),
-      );
+      // Fallback to login page on error
+      _logger.i('Navigating to login page due to error');
+      Navigator.pushReplacementNamed(context, '/login');
     } finally {
       if (mounted) {
         setState(() {
