@@ -1,3 +1,4 @@
+import 'dart:math' as Math;
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/chat/chat_session.dart';
@@ -298,8 +299,10 @@ class JarvisChatService {
           _logger.w('Not saving message to server due to direct Gemini API mode');
         }
         
+        // Update chat title if this is the first message
+        await _updateChatTitleIfFirstMessage(sessionId, text);
         return userMessage;
-      }
+      }  
       
       // Check if we had a previous API error
       if (_hasApiError) {
@@ -343,10 +346,9 @@ class JarvisChatService {
       if (sessionId.startsWith('local_')) {
         await _saveLocalMessage(sessionId, fallbackMessage);
       }
-      
       return fallbackMessage;
-    }
-  }
+    }   
+  }      
 
   // Add helper methods for local message storage
   Future<void> _saveLocalMessage(String sessionId, Message message) async {
@@ -365,7 +367,7 @@ class JarvisChatService {
       _logger.i('Saved message to local storage for session: $sessionId');
     } catch (e) {
       _logger.e('Error saving local message: $e');
-    }
+    } 
   }
 
   Future<List<Message>> _loadLocalMessages(String sessionId) async {
@@ -394,9 +396,112 @@ class JarvisChatService {
     } catch (e) {
       _logger.e('Error loading local messages: $e');
       return [];
+    } 
+  }
+
+  // Helper method to debug message storage
+  Future<bool> _verifyLocalMessages(String sessionId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final List<String> savedMessages = prefs.getStringList(sessionId) ?? [];
+      
+      if (savedMessages.isEmpty) {
+        _logger.w('No messages found for session: $sessionId');
+        return false;
+      }
+      
+      // Check each message can be parsed
+      int validCount = 0;
+      for (int i = 0; i < savedMessages.length; i++) {
+        try {
+          final message = Message.fromJson(savedMessages[i]);
+          validCount++;
+          _logger.d('Message $i: ${message.isUser ? 'User' : 'AI'} - ${message.text.substring(0, Math.min(20, message.text.length))}');
+        } catch (e) {
+          _logger.e('Error parsing message $i: $e');
+        }
+      }
+      
+      _logger.i('Verified $validCount/${savedMessages.length} messages for session: $sessionId');
+      return validCount == savedMessages.length;
+    } catch (e) {
+      _logger.e('Error verifying local messages: $e');
+      return false;
     }
   }
-  
+
+  Future<void> _updateChatTitleIfFirstMessage(String sessionId, String message) async {
+    try {
+      final messages = await _loadLocalMessages(sessionId);
+      if (messages.isEmpty) {
+        _logger.i('Updating chat title for session: $sessionId');
+        String title = _generateTitleFromMessage(message);
+        await _saveChatTitle(sessionId, title);
+      }
+    } catch (e) {
+      _logger.e('Error updating chat title: $e');
+    }
+  }
+
+  Future<void> _saveChatTitle(String sessionId, String title) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final List<String> sessionsJson = prefs.getStringList('chat_sessions') ?? [];
+      final sessions = sessionsJson.map((json) => ChatSession.fromJson(json)).toList();
+      
+      for (int i = 0; i < sessions.length; i++) {
+        if (sessions[i].id == sessionId) {
+          sessions[i] = sessions[i].copyWith(title: title);
+          break;
+        }
+      }
+      
+      await prefs.setStringList('chat_sessions', sessions.map((session) => session.toJson()).toList());
+    } catch (e) {
+      _logger.e('Error saving chat title: $e');
+    }
+  }
+
+  String _generateTitleFromMessage(String message) {
+    // If message is short enough, use it directly
+    if (message.length <= 30) {
+      return message;
+    }
+    
+    // Check if it contains a question
+    final questionIndex = message.indexOf('?');
+    if (questionIndex > 0 && questionIndex < 60) {
+      return message.substring(0, questionIndex + 1);
+    }
+    
+    // Look for the first sentence
+    final sentenceEnd = message.indexOf('. ');
+    if (sentenceEnd > 0 && sentenceEnd < 60) {
+      return message.substring(0, sentenceEnd + 1);
+    }
+    
+    // If message starts with common prefixes, try to extract a meaningful part
+    final commonPrefixes = [
+      'Can you ', 'Could you ', 'I need ', 'Please ', 'How do ', 
+      'What is ', 'Why is ', 'When is ', 'Where is ', 'Who is '
+    ];
+    
+    for (final prefix in commonPrefixes) {
+      if (message.startsWith(prefix)) {
+        // Find a good breaking point after the prefix
+        final remainingText = message.substring(prefix.length);
+        final breakIndex = remainingText.indexOf(' ', 25); // Look for space after at least 25 chars
+        
+        if (breakIndex > 0) {
+          return prefix + remainingText.substring(0, breakIndex) + '...';
+        }
+      }
+    }
+    
+    // Default to the first 30 characters with ellipsis
+    return '${message.substring(0, Math.min(30, message.length))}...';
+  }
+
   /// Get a direct response from the AI when using Gemini API
   Future<String> getDirectAIResponse(String text, List<Map<String, String>> chatHistory) async {
     try {
@@ -500,7 +605,7 @@ class JarvisChatService {
       return defaultModels;
     }
   }
-  
+
   /// Get the currently selected AI model
   Future<String?> getSelectedModel() async {
     // Return cached value if available
@@ -573,7 +678,6 @@ class JarvisChatService {
   /// Check both API connections
   Future<Map<String, bool>> checkAllApiConnections() async {
     final results = <String, bool>{};
-    
     try {
       _logger.i('Checking all API connections');
       

@@ -436,47 +436,110 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    backgroundColor: Colors.white,
+                    radius: 30,
+                    child: Text(
+                      _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
+                      style: TextStyle(
+                        color: Theme.of(context).primaryColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 24,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _userName.isNotEmpty ? _userName : 'User',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 18,
+                    ),
+                  ),
+                  Text(
+                    _userEmail.isNotEmpty ? _userEmail : 'Not signed in',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.add),
+              title: const Text('New Chat'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                _createNewChat();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.account_circle),
+              title: const Text('Account'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const AccountManagementPage(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SettingsPage(),
+                  ),
+                ).then((_) => _loadChatSessions());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.help_outline),
+              title: const Text('Help'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const HelpFeedbackPage(),
+                  ),
+                );
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Sign Out'),
+              onTap: () {
+                Navigator.pop(context); // Close drawer
+                _signOut();
+              },
+            ),
+          ],
+        ),
+      ),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: Theme.of(context).primaryColor,
-                  child: Text(
-                    _userName.isNotEmpty ? _userName[0].toUpperCase() : 'U',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _userName.isNotEmpty ? _userName : 'User',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      Text(
-                        _userEmail.isNotEmpty ? _userEmail : 'Not signed in',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          const Divider(),
-          
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -489,94 +552,10 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: Theme.of(context).primaryColor.withAlpha(13),
-          border: Border(
-            top: BorderSide(
-              color: Colors.grey.withAlpha(77),
-              width: 1,
-            ),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            _buildNavButton(
-              icon: Icons.account_circle,
-              label: 'Account',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const AccountManagementPage(),
-                  ),
-                );
-              },
-            ),
-            _buildNavButton(
-              icon: Icons.settings,
-              label: 'Settings',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SettingsPage(),
-                  ),
-                ).then((_) => _loadChatSessions());
-              },
-            ),
-            _buildNavButton(
-              icon: Icons.help_outline,
-              label: 'Help',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const HelpFeedbackPage(),
-                  ),
-                );
-              },
-            ),
-            _buildNavButton(
-              icon: Icons.logout,
-              label: 'Sign Out',
-              onTap: _signOut,
-            ),
-          ],
-        ),
-      ),
-      
       floatingActionButton: FloatingActionButton(
         onPressed: _createNewChat,
         tooltip: 'New Chat',
         child: const Icon(Icons.add),
-      ),
-    );
-  }
-  
-  Widget _buildNavButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -651,32 +630,116 @@ class _HomePageState extends State<HomePage> {
       itemCount: _chatSessions.length,
       itemBuilder: (context, index) {
         final session = _chatSessions[index];
-        return ListTile(
-          title: Text(session.title),
-          subtitle: Text(
-            'Tạo lúc: ${_formatDate(session.createdAt)}',
+        final isLocalSession = session.id.startsWith('local_');
+        
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
           ),
-          leading: const CircleAvatar(
-            child: Icon(Icons.chat),
-          ),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: () => _deleteChat(session),
-          ),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ChatScreen(chatSession: session),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            title: Text(
+              _formatChatTitle(session.title),
+              style: const TextStyle(
+                fontWeight: FontWeight.w500,
+                fontSize: 16,
               ),
-            ).then((_) => _loadChatSessions());
-          },
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Row(
+              children: [
+                if (isLocalSession)
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'Local',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: Text(
+                    'Created: ${_formatDate(session.createdAt)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            leading: CircleAvatar(
+              backgroundColor: _getAvatarColor(session.title),
+              child: Icon(
+                isLocalSession ? Icons.offline_bolt : Icons.chat,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () => _deleteChat(session),
+              color: Colors.grey[700],
+            ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatScreen(chatSession: session),
+                ),
+              ).then((_) => _loadChatSessions());
+            },
+          ),
         );
       },
     );
   }
   
+  String _formatChatTitle(String title) {
+    // Try to make the title more readable
+    if (title.length <= 40) return title;
+    
+    // If it's too long, check if it contains a question
+    final questionIndex = title.indexOf('?');
+    if (questionIndex > 0 && questionIndex < 60) {
+      return title.substring(0, questionIndex + 1);
+    }
+    
+    // Otherwise, truncate and add ellipsis
+    return '${title.substring(0, 37)}...';
+  }
+  
   String _formatDate(DateTime dateTime) {
-    return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final year = dateTime.year;
+    return '$day/$month/$year';
+  }
+  
+  Color _getAvatarColor(String title) {
+    // Generate a consistent color based on the title
+    final colorSeed = title.codeUnits.fold(0, (prev, element) => prev + element);
+    final colors = [
+      Colors.blue[700]!,
+      Colors.purple[700]!,
+      Colors.green[700]!,
+      Colors.orange[800]!,
+      Colors.teal[700]!,
+      Colors.pink[700]!,
+    ];
+    
+    return colors[colorSeed % colors.length];
   }
 }

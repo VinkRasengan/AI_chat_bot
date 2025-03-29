@@ -4,6 +4,8 @@ import '../../../core/models/chat/chat_session.dart';
 import '../../../core/models/chat/message.dart';
 import '../../../core/services/chat/jarvis_chat_service.dart';
 import '../../../widgets/ai/model_selector_widget.dart';
+import '../../../widgets/chat/message_bubble_widget.dart';
+import '../../../widgets/chat/chat_input_widget.dart';
 
 class ChatScreen extends StatefulWidget {
   final ChatSession chatSession;
@@ -18,7 +20,6 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final JarvisChatService _chatService = JarvisChatService();
   final Logger _logger = Logger();
@@ -172,15 +173,14 @@ class _ChatScreenState extends State<ChatScreen> {
       _logger.e('Error loading model: $e');
     }
   }
-  
-  Future<void> _sendMessage() async {
-    final text = _messageController.text.trim();
+
+  Future<void> _sendMessage(String text) async {
     if (text.isEmpty) return;
 
     setState(() {
-      _isLoading = true;
+      _isSending = true;
       _errorMessage = null;
-      _messageController.clear();
+      _waitingForResponse = true;
     });
 
     try {
@@ -195,18 +195,18 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages.add(tempMessage);
       });
       
+      // Scroll to the bottom
+      _scrollToBottom();
+      
       // Send the message
       final userMessage = await _chatService.sendMessage(widget.chatSession.id, text);
       
       // Check if the session is using local fallback mode
       final isLocalSession = widget.chatSession.id.startsWith('local_') || 
-                            _chatService.isUsingDirectGeminiApi();
+                           _chatService.isUsingDirectGeminiApi();
       
       if (isLocalSession) {
         // For local sessions, we need to generate a response using Gemini API directly
-        setState(() {
-          _waitingForResponse = true;
-        });
         
         // Convert previous messages to a format Gemini can use
         final chatHistory = _messages
@@ -221,8 +221,6 @@ class _ChatScreenState extends State<ChatScreen> {
         final response = await _chatService.getDirectAIResponse(text, chatHistory);
         
         setState(() {
-          _waitingForResponse = false;
-          
           // Add AI response message
           _messages.add(Message(
             text: response,
@@ -249,7 +247,8 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     } finally {
       setState(() {
-        _isLoading = false;
+        _isSending = false;
+        _waitingForResponse = false;
       });
     }
   }
@@ -275,23 +274,48 @@ class _ChatScreenState extends State<ChatScreen> {
   
   @override
   Widget build(BuildContext context) {
-    // Check if this is a local session due to model limitations
-    final isLocalSession = widget.chatSession.id.startsWith('local_');
-    final isNoHistoryModel = widget.chatSession.metadata != null && 
-                            widget.chatSession.metadata!['noHistorySupport'] == true;
+    final formattedTitle = _formatTitle(widget.chatSession.title);
     
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(widget.chatSession.title),
-        actions: [
-          if (isLocalSession && isNoHistoryModel)
-            Tooltip(
-              message: 'This model doesn\'t support server-side chat history',
-              child: const Icon(Icons.info_outline, color: Colors.amber),
+        elevation: 1,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          onPressed: () {
+            // Show drawer of parent HomePage
+            Scaffold.of(context).openDrawer();
+          },
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              formattedTitle,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
             ),
-          ModelSelectorWidget(
-            currentModel: _currentModel,
-            onModelChanged: _onModelChanged,
+            // Show model name in subtitle
+            Text(
+              _getModelDisplayName(_currentModel),
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.more_vert),
+            onPressed: () => _showOptionsMenu(context),
           ),
         ],
       ),
@@ -299,140 +323,198 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           // Messages list
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _messages.isEmpty
-                    ? const Center(
-                        child: Text('Bắt đầu cuộc trò chuyện bằng cách gửi tin nhắn.'),
-                      )
-                    : ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          final message = _messages[index];
-                          return _buildMessageBubble(message);
-                        },
-                      ),
+            child: Container(
+              color: Colors.white,
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _messages.isEmpty
+                      ? _buildEmptyState()
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _messages.length + (_waitingForResponse ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index == _messages.length && _waitingForResponse) {
+                              // Show typing indicator
+                              return MessageBubbleWidget(
+                                message: Message(
+                                  text: '',
+                                  isUser: false,
+                                  timestamp: DateTime.now(), 
+                                  isTyping: true,
+                                ),
+                                previousMessage: _messages.isNotEmpty ? _messages.last : null,
+                              );
+                            }
+                            
+                            final message = _messages[index];
+                            final previousMessage = index > 0 ? _messages[index - 1] : null;
+                            
+                            return MessageBubbleWidget(
+                              message: message,
+                              previousMessage: previousMessage,
+                            );
+                          },
+                        ),
+            ),
           ),
           
           // Input box
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  offset: const Offset(0, -1),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: const InputDecoration(
-                      hintText: 'Nhập tin nhắn...',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    ),
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendMessage(),
-                    enabled: !_isSending,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: _isSending
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send),
-                  onPressed: _isSending ? null : _sendMessage,
-                ),
-              ],
-            ),
+          ChatInputWidget(
+            onSendMessage: _sendMessage,
+            isLoading: _isSending,
           ),
         ],
       ),
     );
   }
   
-  Widget _buildMessageBubble(Message message) {
-    // Renders each message in the history
-    final isUser = message.isUser;
-    
-    if (message.isTyping) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.chat_bubble_outline,
+            size: 64,
             color: Colors.grey[300],
-            borderRadius: BorderRadius.circular(16),
           ),
-          child: const SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.black54),
+          const SizedBox(height: 16),
+          Text(
+            'How can I help you today?',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey[700],
             ),
           ),
-        ),
-      );
-    }
-    
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: isUser
-              ? Theme.of(context).colorScheme.primary
-              : const Color(0xFFEEEEEE), // Use const Color instead of Colors.grey[300]
-          borderRadius: BorderRadius.circular(16),
-        ),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              message.text,
-              style: TextStyle(
-                color: isUser ? Colors.white : Colors.black,
-              ),
+          const SizedBox(height: 8),
+          Text(
+            'Send a message to start chatting',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[500],
             ),
-            const SizedBox(height: 4),
-            Text(
-              _formatTimestamp(message.timestamp),
-              style: TextStyle(
-                color: isUser ? Colors.white70 : Colors.black54,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
+
+  void _showOptionsMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Change model'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showModelSelector(context);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('Reload messages'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _loadMessages();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('Delete conversation'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmDeleteChat();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
   
-  String _formatTimestamp(DateTime timestamp) {
-    return '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
+  void _showModelSelector(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Select Model'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ModelSelectorWidget(
+              currentModel: _currentModel,
+              onModelChanged: (model) {
+                _onModelChanged(model);
+                Navigator.pop(context);
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  
+  void _confirmDeleteChat() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Delete Conversation'),
+          content: const Text('Are you sure you want to delete this conversation? This action cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context); // Return to home page
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  
+  String _formatTitle(String title) {
+    // If title is too long, truncate it
+    if (title.length > 30) {
+      return '${title.substring(0, 27)}...';
+    }
+    return title;
+  }
+  
+  String _getModelDisplayName(String modelId) {
+    // Map model IDs to user-friendly names
+    const modelNames = {
+      'gemini-1.5-flash-latest': 'Gemini 1.5 Flash',
+      'gemini-1.5-pro-latest': 'Gemini 1.5 Pro',
+      'claude-3-5-sonnet-20240620': 'Claude 3.5 Sonnet',
+      'gpt-4o': 'GPT-4o',
+      'gpt-4o-mini': 'GPT-4o Mini',
+    };
+    
+    return modelNames[modelId] ?? modelId;
   }
 
   @override
   void dispose() {
-    _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
