@@ -44,11 +44,14 @@ class ApiConstants {
   static const String models = '/api/v1/models';
   
   // Model constants
-  static const String defaultModel = 'claude-3-5-sonnet-20240620'; // Changed default to Claude instead of Gemini
+  static const String defaultModel = 'gpt-4o-mini'; // Updated default to GPT-4o Mini for better balance of speed/quality
   static const Map<String, String> modelNames = {
     'claude-3-5-sonnet-20240620': 'Claude 3.5 Sonnet',
     'gpt-4o': 'GPT-4o',
     'gpt-4o-mini': 'GPT-4o Mini',
+    'gemini-1.5-flash-latest': 'Gemini 1.5 Flash',
+    'gemini-1.5-pro-latest': 'Gemini 1.5 Pro',
+    'claude-3-haiku-20240307': 'Claude 3 Haiku',
   };
   
   // Model capabilities lookup - track which models support conversation history
@@ -56,6 +59,9 @@ class ApiConstants {
     'claude-3-5-sonnet-20240620': true,
     'gpt-4o': true,
     'gpt-4o-mini': true,
+    'gemini-1.5-flash-latest': true,
+    'gemini-1.5-pro-latest': true, 
+    'claude-3-haiku-20240307': true,
     // All models should require server conversation support
   };
 

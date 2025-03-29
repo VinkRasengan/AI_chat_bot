@@ -4,7 +4,7 @@ import '../../core/constants/api_constants.dart';
 class ModelSelectorWidget extends StatelessWidget {
   final String currentModel;
   final Function(String) onModelChanged;
-  
+
   const ModelSelectorWidget({
     super.key,
     required this.currentModel,
@@ -13,38 +13,93 @@ class ModelSelectorWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.model_training),
-          const SizedBox(width: 4),
-          Text(
-            ApiConstants.modelNames[currentModel] ?? 'Unknown Model',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ],
-      ),
+    return IconButton(
+      icon: const Icon(Icons.api),
       tooltip: 'Select AI Model',
-      onSelected: onModelChanged,
-      itemBuilder: (context) {
-        return ApiConstants.modelNames.entries.map((entry) {
-          return PopupMenuItem<String>(
-            value: entry.key,
-            child: Row(
-              children: [
-                Icon(
-                  Icons.check,
-                  color: currentModel == entry.key ? Colors.blue : Colors.transparent,
-                  size: 16,
-                ),
-                const SizedBox(width: 8),
-                Text(entry.value),
-              ],
-            ),
-          );
-        }).toList();
+      onPressed: () {
+        showModalBottomSheet(
+          context: context,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          builder: (context) => _buildModelSelector(context),
+        );
       },
     );
+  }
+
+  Widget _buildModelSelector(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Colors.grey.withAlpha(100),
+                width: 1,
+              ),
+            ),
+          ),
+          child: const Text(
+            'Select AI Model',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            children: ApiConstants.modelNames.entries.map((entry) {
+              final modelId = entry.key;
+              final modelName = entry.value;
+              final isSelected = modelId == currentModel;
+
+              return ListTile(
+                leading: Icon(
+                  isSelected ? Icons.check_circle : Icons.circle_outlined,
+                  color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
+                ),
+                title: Text(modelName),
+                subtitle: Text(
+                  _getModelDescription(modelId),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                selected: isSelected,
+                onTap: () {
+                  onModelChanged(modelId);
+                  Navigator.pop(context);
+                },
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getModelDescription(String modelId) {
+    switch (modelId) {
+      case 'claude-3-5-sonnet-20240620':
+        return 'Balanced reasoning and creative abilities';
+      case 'gpt-4o':
+        return 'Advanced capabilities with excellent reasoning';
+      case 'gpt-4o-mini':
+        return 'Fast and efficient general-purpose model';
+      case 'gemini-1.5-flash-latest':
+        return 'Quick responses with high efficiency';
+      case 'gemini-1.5-pro-latest':
+        return 'Advanced reasoning and problem-solving';
+      case 'claude-3-haiku-20240307':
+        return 'Fast and efficient for simple tasks';
+      default:
+        return 'AI Assistant model';
+    }
   }
 }

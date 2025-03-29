@@ -1,135 +1,183 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../../core/models/chat/message.dart';
 
-class MessageBubbleWidget extends StatefulWidget {
+class MessageBubbleWidget extends StatelessWidget {
   final Message message;
-  final VoidCallback? onTap;
-  final bool showTimestamp;
-  
-  const MessageBubbleWidget({
-    Key? key,
-    required this.message,
-    this.onTap,
-    this.showTimestamp = true,
-  }) : super(key: key);
-  
-  @override
-  State<MessageBubbleWidget> createState() => _MessageBubbleWidgetState();
-}
+  final bool isLastMessage;
 
-class _MessageBubbleWidgetState extends State<MessageBubbleWidget> {
-  late TapGestureRecognizer _tapRecognizer;
-  
-  @override
-  void initState() {
-    super.initState();
-    _tapRecognizer = TapGestureRecognizer()
-      ..onTap = widget.onTap;
-  }
-  
-  @override
-  void dispose() {
-    _tapRecognizer.dispose(); // Important: Dispose the recognizer
-    super.dispose();
-  }
-  
+  const MessageBubbleWidget({
+    super.key,
+    required this.message,
+    this.isLastMessage = false,
+  });
+
   @override
   Widget build(BuildContext context) {
-    final isUser = widget.message.isUser;
-    final isTyping = widget.message.isTyping;
+    final isTyping = message.isTyping;
+    final isWelcomeMessage = message.id == 'welcome';
     
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.8,
-        ),
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        decoration: BoxDecoration(
-          color: isUser 
-              ? Theme.of(context).primaryColor 
-              : Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(26), // 0.1 * 255 = ~26
-              blurRadius: 3,
-              offset: const Offset(0, 1),
+    return Row(
+      mainAxisAlignment: message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // AI Avatar (only show for AI messages)
+        if (!message.isUser) _buildAvatar(context, isWelcomeMessage),
+        
+        // Message Content
+        Flexible(
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
-          ],
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              // Use special styling for welcome message
+              color: message.isUser 
+                  ? Theme.of(context).primaryColor 
+                  : (isTyping 
+                      ? Colors.grey.shade200 
+                      : (isWelcomeMessage 
+                          ? Colors.blue.shade50  // Light blue for welcome message
+                          : Colors.white)),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 5,
+                  offset: const Offset(0, 2),
+                )
+              ],
+            ),
+            child: isTyping 
+                ? _buildTypingIndicator() 
+                : _buildMessageContent(context),
+          ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (isTyping)
-              _buildTypingIndicator()
-            else
-              _buildMessageText(context),
-            
-            if (widget.showTimestamp && !isTyping)
-              _buildTimestamp(),
-          ],
+        
+        // User Avatar (only show for user messages)
+        if (message.isUser) _buildUserAvatar(context),
+      ],
+    );
+  }
+  
+  Widget _buildAvatar(BuildContext context, bool isWelcomeMessage) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8.0),
+      child: CircleAvatar(
+        backgroundColor: isWelcomeMessage ? Colors.blue.shade600 : Colors.green.shade700,
+        radius: 16,
+        child: Icon(
+          isWelcomeMessage ? Icons.waving_hand : Icons.smart_toy,
+          size: isWelcomeMessage ? 18 : 20,
+          color: Colors.white,
         ),
       ),
     );
   }
   
-  Widget _buildMessageText(BuildContext context) {
-    return SelectableText.rich(
-      TextSpan(
-        text: widget.message.text,
-        style: TextStyle(
-          color: widget.message.isUser ? Colors.white : null,
+  Widget _buildUserAvatar(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8.0),
+      child: CircleAvatar(
+        backgroundColor: Colors.blue.shade700,
+        radius: 16,
+        child: const Icon(
+          Icons.person,
+          size: 20,
+          color: Colors.white,
         ),
-        recognizer: widget.onTap != null ? _tapRecognizer : null,
       ),
     );
   }
   
   Widget _buildTypingIndicator() {
-    return const Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-          ),
-        ),
-        SizedBox(width: 8),
-        Text('Đang nhập...'),
+      children: const [
+        AnimatedPulse(delay: 100),
+        AnimatedPulse(delay: 300),
+        AnimatedPulse(delay: 500),
       ],
     );
   }
   
-  Widget _buildTimestamp() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        _formatTimestamp(widget.message.timestamp),
-        style: TextStyle(
-          fontSize: 10,
-          color: widget.message.isUser 
-              ? Colors.white.withAlpha(179) // 0.7 * 255 = ~179
-              : Colors.grey,
-        ),
+  Widget _buildMessageContent(BuildContext context) {
+    final isWelcomeMessage = message.id == 'welcome';
+    
+    return Text(
+      message.text,
+      style: TextStyle(
+        color: message.isUser 
+            ? Colors.white 
+            : (isWelcomeMessage ? Colors.black87 : Colors.black87),
+        fontSize: 15,
+        fontWeight: isWelcomeMessage ? FontWeight.w500 : FontWeight.normal,
       ),
     );
   }
+}
+
+// Animation for typing indicator
+class AnimatedPulse extends StatefulWidget {
+  final int delay;
   
-  String _formatTimestamp(DateTime timestamp) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(
-      timestamp.year, timestamp.month, timestamp.day);
+  const AnimatedPulse({super.key, required this.delay});
+
+  @override
+  State<AnimatedPulse> createState() => _AnimatedPulseState();
+}
+
+class _AnimatedPulseState extends State<AnimatedPulse> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+  
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
     
-    if (messageDate == today) {
-      return '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
-    } else {
-      return '${timestamp.day}/${timestamp.month} ${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
-    }
+    _animation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+    
+    // Add delay before starting animation
+    Future.delayed(Duration(milliseconds: widget.delay), () {
+      if (mounted) {
+        _controller.repeat(reverse: true);
+      }
+    });
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        // Calculate the alpha value as a double between 128.0 and 256.0
+        final double alphaValue = 128.0 + (_animation.value * 128.0);
+        
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          height: 8,
+          width: 8,
+          decoration: BoxDecoration(
+            color: Colors.grey.withOpacity(alphaValue / 255.0), // Proper opacity value
+            shape: BoxShape.circle,
+          ),
+        );
+      },
+    );
+  }
+  
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 }

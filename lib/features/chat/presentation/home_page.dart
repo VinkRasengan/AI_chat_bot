@@ -4,7 +4,8 @@ import '../../../core/models/chat/chat_session.dart';
 import '../../../core/services/chat/jarvis_chat_service.dart';
 import '../../../core/services/auth/auth_service.dart';
 import '../../../widgets/ai/model_selector_widget.dart';
-import '../../../core/constants/api_constants.dart'; // Add this import
+import '../../../core/constants/api_constants.dart';
+import '../../../core/exceptions/api_exceptions.dart';
 import '../../settings/presentation/settings_page.dart';
 import '../../account/presentation/account_management_page.dart';
 import '../../support/presentation/help_feedback_page.dart';
@@ -34,7 +35,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _chatService = JarvisChatService(_authService); // Fix constructor
+    _chatService = JarvisChatService(_authService);
     _checkAuthAndLoadData();
   }
   
@@ -45,7 +46,6 @@ class _HomePageState extends State<HomePage> {
     });
     
     try {
-      // Check authentication status and force update if needed
       final isLoggedIn = await _authService.isLoggedIn();
       
       if (!isLoggedIn) {
@@ -57,13 +57,11 @@ class _HomePageState extends State<HomePage> {
           
           if (!mounted) return;
           
-          // Navigate back to login page
           Navigator.of(context).pushReplacementNamed('/login');
           return;
         }
       }
       
-      // Load user info and chat sessions
       await _loadUserInfo();
       await _loadChatSessions();
       await _loadSelectedModel();
@@ -96,10 +94,8 @@ class _HomePageState extends State<HomePage> {
       if (user == null) {
         _logger.w('No user found in AuthService');
         
-        // Try to force auth state update
         await _authService.forceAuthStateUpdate();
         
-        // Check again after update
         final refreshedUser = _authService.currentUser;
         
         if (refreshedUser == null) {
@@ -111,13 +107,11 @@ class _HomePageState extends State<HomePage> {
           return;
         }
         
-        // Use refreshed user
         setState(() {
           _userEmail = refreshedUser.email;
           _userName = refreshedUser.name ?? 'User';
         });
       } else {
-        // Use current user
         setState(() {
           _userEmail = user.email;
           _userName = user.name ?? 'User';
@@ -146,12 +140,10 @@ class _HomePageState extends State<HomePage> {
     try {
       _logger.i('Loading chat sessions');
       
-      // Check if selected model supports conversation history
       final model = await _chatService.getSelectedModel();
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[model ?? ''] ?? false;
       
       if (!supportsHistory && mounted) {
-        // Show message about model limitation
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -172,7 +164,6 @@ class _HomePageState extends State<HomePage> {
         _chatSessions = chatSessions;
         _isLoading = false;
         
-        // If there are no sessions, show the "no conversations" state
         if (_chatSessions.isEmpty) {
           _noConversationsYet = true;
         } else {
@@ -184,7 +175,6 @@ class _HomePageState extends State<HomePage> {
       
       if (!mounted) return;
       
-      // Special case for conversation history limitation
       if (e.toString().toLowerCase().contains('does not support conversation history') ||
           e.toString().toLowerCase().contains('400 bad request')) {
         setState(() {
@@ -192,7 +182,6 @@ class _HomePageState extends State<HomePage> {
           _noConversationsYet = true;
         });
         
-        // Show a more helpful message about the model limitation
         if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -211,7 +200,6 @@ class _HomePageState extends State<HomePage> {
         _error = 'Failed to load conversations. Please try again.';
       });
       
-      // Show a snackbar with the error
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_error ?? 'Unknown error'),
@@ -236,11 +224,11 @@ class _HomePageState extends State<HomePage> {
   
   Future<void> _createNewChat() async {
     try {
+      _logger.i('Creating new chat in Home Page');
+      
       setState(() {
         _isLoading = true;
       });
-      
-      _logger.i('Creating new chat in Home Page');
       
       final newChat = await _chatService.createChatSession('New Chat');
       
@@ -250,18 +238,27 @@ class _HomePageState extends State<HomePage> {
         _isLoading = false;
       });
       
-      if (newChat.id.isEmpty) {
-        _logger.e('Failed to create new chat, empty ID returned');
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to create new chat. Please try again.')),
-        );
-        return;
-      }
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatScreen(
+            chatSession: newChat,
+            chatService: _chatService,
+          ),
+        ),
+      );
       
-      // Navigate to the chat screen with the new chat
-      _navigateToChatScreen(newChat);
+      _refreshChatSessions();
+    } on InsufficientTokensException catch (e) {
+      _logger.e('Insufficient tokens error: ${e.message}');
       
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+      });
+      
+      _showInsufficientTokensDialog(e.message);
     } catch (e) {
       _logger.e('Error creating chat session: $e');
       
@@ -271,16 +268,53 @@ class _HomePageState extends State<HomePage> {
         _isLoading = false;
       });
       
-      // Show more user-friendly error message
-      String errorMessage = 'Failed to create new chat.';
-      if (e.toString().contains('404') || e.toString().contains('endpoint not available')) {
-        errorMessage = 'Server feature unavailable. Please try again later.';
-      }
-      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage)),
+        SnackBar(
+          content: Text('Error creating new chat: ${e.toString()}'),
+          duration: const Duration(seconds: 5),
+        ),
       );
     }
+  }
+  
+  void _showInsufficientTokensDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Usage Limit Reached'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.error_outline,
+              color: Colors.orange,
+              size: 50,
+            ),
+            const SizedBox(height: 16),
+            Text(message),
+            const SizedBox(height: 12),
+            const Text(
+              'You have reached your usage limit for this period. '
+              'Please try again later or upgrade your subscription for more tokens.',
+              style: TextStyle(fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Upgrade Plan'),
+          ),
+        ],
+      ),
+    );
   }
   
   Future<void> _deleteChat(ChatSession session) async {
@@ -335,7 +369,6 @@ class _HomePageState extends State<HomePage> {
       
       if (!mounted) return;
       
-      // Check if the selected model supports conversation history
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
       
       ScaffoldMessenger.of(context).showSnackBar(
@@ -345,7 +378,6 @@ class _HomePageState extends State<HomePage> {
         ),
       );
       
-      // Reload sessions after model change
       _loadChatSessions();
     } catch (e) {
       _logger.e('Error updating model: $e');
@@ -372,7 +404,6 @@ class _HomePageState extends State<HomePage> {
     }
   }
   
-  /// Check and fix API issues
   Future<void> _checkAndFixApiIssues() async {
     setState(() {
       _isLoading = true;
@@ -381,23 +412,21 @@ class _HomePageState extends State<HomePage> {
     try {
       _logger.i('Checking and fixing API issues');
       
-      // Store a local copy of the context
-      final currentContext = context;
-      
-      // Call forceUseApiMode without trying to use its result as a boolean
       await _chatService.forceUseApiMode(true);
       
       if (!mounted) return;
       
-      // Reload sessions after trying to fix API
       await _loadChatSessions();
       
-      ScaffoldMessenger.of(currentContext).showSnackBar(
-        const SnackBar(
-          content: Text('API connection restored. Chat history should now be saved.'),
-          duration: Duration(seconds: 5),
-        ),
-      );
+      final currentContext = context;
+      if (mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          const SnackBar(
+            content: Text('API connection restored. Chat history should now be saved.'),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     } catch (e) {
       _logger.e('Error checking API issues: $e');
       
@@ -418,10 +447,8 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  /// Force API mode and reload data
   Future<void> _forceUseApiMode() async {
     try {
-      // Fix the parameter
       await _chatService.forceUseApiMode(true);
       await _authService.forceAuthStateUpdate();
       
@@ -505,7 +532,7 @@ class _HomePageState extends State<HomePage> {
               leading: const Icon(Icons.add),
               title: const Text('New Chat'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context);
                 _createNewChat();
               },
             ),
@@ -514,7 +541,7 @@ class _HomePageState extends State<HomePage> {
               leading: const Icon(Icons.account_circle),
               title: const Text('Account'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context);
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -527,7 +554,7 @@ class _HomePageState extends State<HomePage> {
               leading: const Icon(Icons.settings),
               title: const Text('Settings'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context);
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -540,7 +567,7 @@ class _HomePageState extends State<HomePage> {
               leading: const Icon(Icons.help_outline),
               title: const Text('Help'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context);
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -554,7 +581,7 @@ class _HomePageState extends State<HomePage> {
               leading: const Icon(Icons.logout),
               title: const Text('Sign Out'),
               onTap: () {
-                Navigator.pop(context); // Close drawer
+                Navigator.pop(context);
                 _signOut();
               },
             ),
@@ -720,7 +747,10 @@ class _HomePageState extends State<HomePage> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => ChatScreen(chatSession: session),
+                  builder: (context) => ChatScreen(
+                    chatSession: session,
+                    chatService: _chatService,
+                  ),
                 ),
               ).then((_) => _loadChatSessions());
             },
@@ -731,16 +761,13 @@ class _HomePageState extends State<HomePage> {
   }
   
   String _formatChatTitle(String title) {
-    // Try to make the title more readable
     if (title.length <= 40) return title;
     
-    // If it's too long, check if it contains a question
     final questionIndex = title.indexOf('?');
     if (questionIndex > 0 && questionIndex < 60) {
       return title.substring(0, questionIndex + 1);
     }
     
-    // Otherwise, truncate and add ellipsis
     return '${title.substring(0, 37)}...';
   }
   
@@ -752,7 +779,6 @@ class _HomePageState extends State<HomePage> {
   }
   
   Color _getAvatarColor(String title) {
-    // Generate a consistent color based on the title
     final colorSeed = title.codeUnits.fold(0, (prev, element) => prev + element);
     final colors = [
       Colors.blue[700]!,
@@ -766,12 +792,7 @@ class _HomePageState extends State<HomePage> {
     return colors[colorSeed % colors.length];
   }
   
-  void _navigateToChatScreen(ChatSession session) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChatScreen(chatSession: session),
-      ),
-    ).then((_) => _loadChatSessions());
+  void _refreshChatSessions() {
+    _loadChatSessions();
   }
 }

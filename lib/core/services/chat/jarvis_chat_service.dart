@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../constants/api_constants.dart';
 import '../../models/chat/chat_session.dart';
 import '../../models/chat/message.dart';
+import '../../exceptions/api_exceptions.dart';  // Add import for exceptions
 import '../auth/auth_service.dart';
 
 /// Unified Chat Service
@@ -79,11 +80,14 @@ class JarvisChatService {
       // Add assistantId if we have a selected model
       if (selectedModel != null && selectedModel.isNotEmpty) {
         queryParams['assistantId'] = selectedModel;
+        _logger.d('Using model $selectedModel for fetching conversations');
       }
 
       // Build the URI with query parameters
       final uri = Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}')
           .replace(queryParameters: queryParams);
+      
+      _logger.d('Get conversations URI: ${uri.toString()}');
       
       // Get auth headers
       final headers = _authService.getHeaders();
@@ -158,6 +162,8 @@ class JarvisChatService {
       // Get the selected model
       final selectedModel = await getSelectedModel();
       
+      _logger.i('Using model $selectedModel for new chat session');
+      
       // Check if model supports conversation history
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[selectedModel ?? ''] ?? false;
       
@@ -173,15 +179,22 @@ class JarvisChatService {
       final headers = _authService.getHeaders();
       headers['x-jarvis-guid'] = '';
       
-      // Initial message to create conversation
+      // Use a default title - it will be updated later with the user's first message
+      const chatTitle = 'New Chat';
+      
+      // Use a dummy message to initiate the conversation
+      const dummyMessage = 'start_conversation';
+      
+      // Initial message to create conversation - MUST include non-empty content
       final response = await http.post(
         Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.messages}'),
         headers: headers,
         body: jsonEncode({
-          'content': 'Create a new chat titled: $title',
+          'content': dummyMessage, // Use dummy message instead of welcome message
           'files': [],
           'metadata': {
             'conversation': {
+              'title': chatTitle,
               'messages': []  // No previous messages since this is new
             }
           },
@@ -193,8 +206,6 @@ class JarvisChatService {
         }),
       );
       
-      _logger.d('Create conversation response: ${response.statusCode} ${response.body}');
-      
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         
@@ -205,11 +216,23 @@ class JarvisChatService {
           throw 'Failed to get conversation ID from response';
         }
         
+        // Extract the AI's response, which should be the welcome message
+        final welcomeMessage = data['message'] ?? 'Hello, how can I help you today?';
+        
         // Create a chat session from the response
         final chatSession = ChatSession(
           id: conversationId,
-          title: title.isEmpty ? 'New Chat' : title,
+          title: chatTitle,
           createdAt: DateTime.now(),
+          // Include only the AI welcome message in the session
+          messages: [
+            Message(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              text: welcomeMessage,
+              isUser: false,
+              timestamp: DateTime.now(),
+            )
+          ],
         );
         
         // Clear cache to force refresh on next getUserChatSessions
@@ -232,12 +255,180 @@ class JarvisChatService {
           throw 'Authentication failed';
         }
       } else {
-        _logger.e('Error creating chat session: ${response.statusCode} ${response.body}');
-        throw 'Failed to create chat session: ${response.statusCode}';
+        // Check specifically for insufficient tokens error
+        if (response.statusCode == 422) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData['message'] == 'Insufficient tokens' || 
+                errorData.toString().contains('insufficient_tokens')) {
+              _logger.e('Insufficient tokens error when creating chat session');
+              throw InsufficientTokensException(
+                errorData['message'] ?? 'You have reached your usage limit for this period'
+              );
+            }
+          } catch (e) {
+            if (e is InsufficientTokensException) {
+              rethrow;
+            }
+            _logger.e('Error parsing error response: $e');
+          }
+        }
+        
+        // Improved error logging with more details from response body
+        try {
+          final errorData = jsonDecode(response.body);
+          _logger.e('Error creating chat session: ${response.statusCode} ${errorData['message'] ?? errorData.toString()}');
+          throw 'Failed to create chat session: ${response.statusCode} - ${errorData['message'] ?? 'Unknown error'}';
+        } catch (e) {
+          _logger.e('Error creating chat session: ${response.statusCode} ${response.body}');
+          throw 'Failed to create chat session: ${response.statusCode}';
+        }
       }
     } catch (e) {
+      if (e is InsufficientTokensException) {
+        rethrow;
+      }
+      
       _logger.e('Error creating chat session: $e');
       throw 'Failed to create chat session: $e';
+    }
+  }
+  
+  /// Send a message in a conversation
+  Future<Map<String, dynamic>> sendMessage(String conversationId, String message) async {
+    try {
+      _logger.i('Sending message to conversation: $conversationId');
+      
+      // Get selected model
+      final selectedModel = await getSelectedModel() ?? ApiConstants.defaultModel;
+      if (selectedModel == ApiConstants.defaultModel) {
+        _logger.w('Using default model as no model was selected');
+      }
+      final modelName = ApiConstants.modelNames[selectedModel] ?? 'AI Assistant';
+      
+      _logger.i('Using model: $selectedModel ($modelName)');
+      
+      // Get conversation history for proper formatting
+      final messages = await getMessages(conversationId);
+      
+      // Check if this is the first user message (only AI welcome message exists)
+      bool isFirstUserMessage = messages.length == 1 && !messages[0].isUser;
+      
+      // Format messages according to API requirements - only include previous messages
+      final formattedMessages = messages.map((msg) => {
+        'role': msg.isUser ? 'user' : 'model',
+        'content': msg.text,
+        'files': [],
+        'assistant': {
+          'id': selectedModel,
+          'model': 'dify',
+          'name': modelName
+        }
+      }).toList();
+      
+      // Get headers and add x-jarvis-guid header
+      final headers = _authService.getHeaders();
+      headers['x-jarvis-guid'] = '';
+      
+      // If it's the first user message, create a title from it
+      String title = 'New Chat';
+      if (isFirstUserMessage) {
+        // Create a title from the first user message (max 50 chars)
+        title = message.length > 50 ? message.substring(0, 47) + '...' : message;
+      }
+      
+      // Make API request with proper structure per API documentation
+      final response = await http.post(
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.messages}'),
+        headers: headers,
+        body: jsonEncode({
+          'content': message, // New message only in content field
+          'files': [],
+          'metadata': {
+            'conversation': {
+              'id': conversationId,
+              'title': title, // Use the new title
+              'messages': formattedMessages // Only previous messages, not including the new one
+            }
+          },
+          'assistant': {
+            'id': selectedModel, // Make sure we're using the currently selected model here
+            'model': 'dify',
+            'name': modelName
+          }
+        }),
+      );
+      
+      _logger.d('Send message response: ${response.statusCode} ${response.body}');
+      
+      if (response.statusCode == 200) {
+        // Parse response
+        final data = jsonDecode(response.body);
+        _logger.i('Message sent successfully. Response: ${data['message']}');
+        _logger.d('Conversation ID: ${data['conversationId']}, Remaining Usage: ${data['remainingUsage']}');
+        
+        // Force the cache to refresh for this conversation since we have new messages
+        _lastChatSessionsRefresh = null;
+        
+        // If this was the first user message, update the conversation title
+        if (isFirstUserMessage) {
+          _updateConversationTitle(conversationId, title);
+        }
+        
+        // Return both the user message and AI response for proper UI updates
+        return {
+          'message': data['message'],          // AI's response text
+          'conversationId': data['conversationId'],
+          'remainingUsage': data['remainingUsage'],
+          'userMessage': message,              // Original user message
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'title': isFirstUserMessage ? title : null,  // Include title in response if first message
+          'success': true
+        };
+      } else {
+        _logger.e('Error sending message: ${response.statusCode} ${response.body}');
+        return {
+          'error': 'Failed to send message: ${response.statusCode}',
+          'success': false
+        };
+      }
+    } catch (e) {
+      _logger.e('Error sending message: $e');
+      return {
+        'error': 'Failed to send message: $e',
+        'success': false
+      };
+    }
+  }
+  
+  /// Update the title of a conversation
+  Future<bool> _updateConversationTitle(String conversationId, String title) async {
+    try {
+      _logger.i('Updating conversation title: $conversationId to "$title"');
+      
+      // Get headers and add x-jarvis-guid header
+      final headers = _authService.getHeaders();
+      headers['x-jarvis-guid'] = '';
+      
+      // Make API request to update conversation title
+      final response = await http.patch(
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}/$conversationId'),
+        headers: headers,
+        body: jsonEncode({
+          'title': title,
+        }),
+      );
+      
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        _logger.i('Conversation title updated successfully');
+        return true;
+      } else {
+        _logger.e('Error updating conversation title: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      _logger.e('Error updating conversation title: $e');
+      return false;
     }
   }
   
@@ -277,11 +468,14 @@ class JarvisChatService {
       final selectedModel = await getSelectedModel();
       if (selectedModel != null && selectedModel.isNotEmpty) {
         queryParams['assistantId'] = selectedModel;
+        _logger.d('Using model $selectedModel for fetching messages');
       }
 
       // Build the URI with query parameters
       final uri = Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversationMessages(conversationId)}')
           .replace(queryParameters: queryParams);
+      
+      _logger.d('Get messages URI: ${uri.toString()}');
       
       // Get headers and add required x-jarvis-guid header
       final headers = _authService.getHeaders();
@@ -299,10 +493,23 @@ class JarvisChatService {
         
         // Parse items array from the response with better error handling
         if (data.containsKey('items') && data['items'] is List) {
-          for (var item in data['items']) {
-            // User message has a 'query' field, bot message has an 'answer' field
+          final List items = data['items'] as List;
+          
+          for (var item in items) {
             final bool isUserMessage = item.containsKey('query');
             final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
+            
+            // Skip the dummy message used to initiate the conversation
+            if (isUserMessage && content == 'start_conversation') {
+              _logger.d('Skipping dummy start message');
+              continue;
+            }
+            
+            // Skip duplicate welcome message from user side if it matches the AI welcome message
+            if (isUserMessage && content == 'Hello, how can I help you today?') {
+              _logger.w('Skipping duplicate welcome message from user side');
+              continue;
+            }
             
             messages.add(Message(
               id: item['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -385,92 +592,6 @@ class JarvisChatService {
     } catch (e) {
       _logger.e('Error getting messages: $e');
       return [];
-    }
-  }
-  
-  /// Send a message in a conversation
-  Future<Map<String, dynamic>> sendMessage(String conversationId, String message) async {
-    try {
-      _logger.i('Sending message to conversation: $conversationId');
-      
-      // Get selected model
-      final selectedModel = await getSelectedModel() ?? ApiConstants.defaultModel;
-      if (selectedModel == ApiConstants.defaultModel) {
-        _logger.w('Using default model as no model was selected');
-      }
-      final modelName = ApiConstants.modelNames[selectedModel] ?? 'AI Assistant';
-      
-      // Get conversation history for proper formatting
-      final messages = await getMessages(conversationId);
-      
-      // Format messages according to API requirements - only include previous messages
-      final formattedMessages = messages.map((msg) => {
-        'role': msg.isUser ? 'user' : 'model',
-        'content': msg.text,
-        'files': [],
-        'assistant': {
-          'id': selectedModel,
-          'model': 'dify',
-          'name': modelName
-        }
-      }).toList();
-      
-      // Get headers and add x-jarvis-guid header
-      final headers = _authService.getHeaders();
-      headers['x-jarvis-guid'] = '';
-      
-      // Make API request with proper structure per API documentation
-      final response = await http.post(
-        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.messages}'),
-        headers: headers,
-        body: jsonEncode({
-          'content': message, // New message only in content field
-          'files': [],
-          'metadata': {
-            'conversation': {
-              'id': conversationId,
-              'messages': formattedMessages // Only previous messages, not including the new one
-            }
-          },
-          'assistant': {
-            'id': selectedModel,
-            'model': 'dify',
-            'name': modelName
-          }
-        }),
-      );
-      
-      if (response.statusCode == 200) {
-        // Parse response
-        final data = jsonDecode(response.body);
-        _logger.i('Message sent successfully. Response: ${data['message']}');
-        _logger.d('Conversation ID: ${data['conversationId']}, Remaining Usage: ${data['remainingUsage']}');
-        
-        // Force the cache to refresh for this conversation since we have new messages
-        _lastChatSessionsRefresh = null;
-        
-        // Return both the user message and AI response for proper UI updates
-        return {
-          'message': data['message'],          // AI's response text
-          'conversationId': data['conversationId'],
-          'remainingUsage': data['remainingUsage'],
-          'userMessage': message,              // Original user message
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'success': true
-        };
-      } else {
-        _logger.e('Error sending message: ${response.statusCode} ${response.body}');
-        return {
-          'error': 'Failed to send message: ${response.statusCode}',
-          'success': false
-        };
-      }
-    } catch (e) {
-      _logger.e('Error sending message: $e');
-      return {
-        'error': 'Failed to send message: $e',
-        'success': false
-      };
     }
   }
   
