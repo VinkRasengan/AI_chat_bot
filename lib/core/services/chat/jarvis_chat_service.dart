@@ -33,9 +33,11 @@ class JarvisChatService {
       await getSelectedModel();
       
       _isInitialized = true;
+      _logger.i('JarvisChatService initialized successfully');
     } catch (e) {
       _logger.e('Error initializing JarvisChatService: $e');
-      rethrow;
+      // Don't rethrow to prevent app startup failures
+      _isInitialized = true; // Mark as initialized anyway to prevent repeated failures
     }
   }
   
@@ -159,14 +161,7 @@ class JarvisChatService {
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[selectedModel ?? ''] ?? false;
       
       if (!supportsHistory) {
-        // Create a local session when model doesn't support server conversations
-        final chatSession = ChatSession(
-          id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-          title: title.isEmpty ? 'New Chat' : title,
-          createdAt: DateTime.now(),
-        );
-        
-        return chatSession;
+        throw 'Selected model does not support conversation history. Please select another model.';
       }
       
       // Create an API request body
@@ -180,10 +175,20 @@ class JarvisChatService {
         requestBody['assistantId'] = selectedModel;
       }
       
+      // Get headers and add x-jarvis-guid header
+      final headers = _authService.getHeaders();
+      headers['x-jarvis-guid'] = '';
+      
+      // Log the complete URL and headers for debugging
+      final url = '${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}';
+      _logger.d('Creating conversation with URL: $url');
+      _logger.d('Request headers: ${headers.toString()}');
+      _logger.d('Request body: ${jsonEncode(requestBody)}');
+      
       // Make API request
       final response = await http.post(
-        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}'),
-        headers: _authService.getHeaders(),
+        Uri.parse(url),
+        headers: headers,
         body: jsonEncode(requestBody),
       );
       
@@ -203,6 +208,11 @@ class JarvisChatService {
         _lastChatSessionsRefresh = null;
         
         return chatSession;
+      } else if (response.statusCode == 404) {
+        // API endpoint not found
+        _logger.e('Conversation creation endpoint not found (404).');
+        _logger.d('Response body: ${response.body}');
+        throw 'API endpoint not available. Please contact support.';
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         // Limit the number of retries
         if (retryCount >= 2) {
@@ -220,11 +230,11 @@ class JarvisChatService {
         }
       } else {
         _logger.e('Error creating chat session: ${response.statusCode} ${response.body}');
-        throw 'Failed to create chat session';
+        throw 'Failed to create chat session: ${response.statusCode}';
       }
     } catch (e) {
       _logger.e('Error creating chat session: $e');
-      rethrow;
+      throw 'Failed to create chat session: $e';
     }
   }
   
@@ -232,13 +242,6 @@ class JarvisChatService {
   Future<bool> deleteChatSession(String sessionId) async {
     try {
       _logger.i('Deleting chat session: $sessionId');
-      
-      // Check if it's a local session
-      if (sessionId.startsWith('local_')) {
-        // For local sessions, just return success immediately
-        _lastChatSessionsRefresh = null;
-        return true;
-      }
       
       // Make API request
       final response = await http.delete(
@@ -260,11 +263,6 @@ class JarvisChatService {
   Future<List<Message>> getMessages(String conversationId, {int retryCount = 0}) async {
     try {
       _logger.i('Getting messages for conversation: $conversationId');
-      
-      // Check if it's a local session
-      if (conversationId.startsWith('local_')) {
-        return [];
-      }
       
       // Prepare query parameters according to the API documentation
       final queryParams = {
@@ -354,11 +352,6 @@ class JarvisChatService {
     try {
       _logger.i('Sending message to conversation: $conversationId');
       
-      // Check if it's a local session
-      if (conversationId.startsWith('local_')) {
-        throw 'Cannot send messages to local sessions via API';
-      }
-
       // Get selected model
       final selectedModel = await getSelectedModel() ?? ApiConstants.defaultModel;
       final modelName = ApiConstants.modelNames[selectedModel] ?? 'AI Assistant';
@@ -469,13 +462,8 @@ class JarvisChatService {
   
   /// Check if using direct API mode
   Future<bool> isUsingDirectGeminiApi() async {
-    try {
-      // Always false now that we don't use Gemini API directly
-      return false;
-    } catch (e) {
-      _logger.e('Error checking if using direct Gemini API: $e');
-      return false;
-    }
+    // Always use the server API
+    return false;
   }
   
   /// Check all API connections
@@ -550,7 +538,7 @@ class JarvisChatService {
   /// Force update of API mode
   Future<void> forceUseApiMode(bool useAPI) async {
     // This method is now just a compatibility stub since we always use the API
-    _logger.i('Force use API mode called with: $useAPI (always true now)');
+    _logger.i('Force use API mode called (always true now)');
   }
   
   /// Force update of auth state

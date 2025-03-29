@@ -3,13 +3,16 @@ import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/user_model.dart';
 import '../../constants/api_constants.dart';
-import 'providers/jarvis_auth_provider.dart';
 import 'package:http/http.dart' as http;
 
 /// Unified Authentication Service
 class AuthService {
   final Logger _logger = Logger();
   bool _isInitialized = false;
+  String? _accessToken;
+  String? _refreshToken;
+  String? _userId;
+  UserModel? _currentUser;
   
   /// Initialize the auth service
   Future<void> initialize() async {
@@ -17,8 +20,13 @@ class AuthService {
     
     try {
       _logger.i('Initializing AuthService');
-      final authProvider = JarvisAuthProvider();
-      await authProvider.initialize();
+      
+      // Load tokens from storage
+      final prefs = await SharedPreferences.getInstance();
+      _accessToken = prefs.getString(ApiConstants.accessTokenKey);
+      _refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+      _userId = prefs.getString(ApiConstants.userIdKey);
+      
       _isInitialized = true;
     } catch (e) {
       _logger.e('Error initializing AuthService: $e');
@@ -32,7 +40,7 @@ class AuthService {
       _logger.i('Refreshing authentication token');
       
       final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+      final refreshToken = prefs.getString(ApiConstants.refreshTokenKey) ?? _refreshToken;
       
       if (refreshToken == null || refreshToken.isEmpty) {
         _logger.w('No refresh token available');
@@ -41,11 +49,11 @@ class AuthService {
       
       // Per API documentation, use specific headers for token refresh
       final headers = {
+        'Content-Type': 'application/json',
         'X-Stack-Access-Type': 'client',
         'X-Stack-Project-Id': ApiConstants.stackProjectId,
         'X-Stack-Publishable-Client-Key': ApiConstants.stackPublishableClientKey,
         'X-Stack-Refresh-Token': refreshToken,
-        'Content-Type': 'application/json'
       };
       
       // POST request body can be empty per the API example
@@ -61,6 +69,7 @@ class AuthService {
         
         if (newAccessToken != null) {
           // Save the new access token
+          _accessToken = newAccessToken;
           await prefs.setString(ApiConstants.accessTokenKey, newAccessToken);
           _logger.i('Token refreshed successfully');
           return true;
@@ -78,22 +87,7 @@ class AuthService {
     }
   }
   
-  /// Confirm password reset
-  Future<void> confirmPasswordReset(String code, String newPassword) async {
-    try {
-      _logger.i('Confirming password reset');
-      
-      final authProvider = JarvisAuthProvider();
-      await authProvider.initialize();
-      await authProvider.confirmPasswordReset(code, newPassword);
-      
-      _logger.i('Password reset confirmed successfully');
-    } catch (e) {
-      _logger.e('Error confirming password reset: $e');
-      throw e.toString();
-    }
-  }
-  
+  /// Sign in with email and password using Jarvis API
   Future<UserModel> signInWithEmailAndPassword(String email, String password) async {
     try {
       _logger.i('Signing in with email and password: $email');
@@ -116,21 +110,23 @@ class AuthService {
         
         // Save auth tokens from the response
         if (data['access_token'] != null) {
-          await _saveAuthToken(
-            data['access_token'],
-            data['refresh_token'] ?? '',
-            data['user_id'] ?? '',
-          );
+          _accessToken = data['access_token'];
+          _refreshToken = data['refresh_token'] ?? '';
+          _userId = data['user_id'] ?? '';
+          
+          await _saveAuthTokens();
         }
         
         // Create and return user model
-        return UserModel(
+        _currentUser = UserModel(
           id: data['user_id'] ?? '',
           uid: data['user_id'] ?? '',
           email: email,
           createdAt: DateTime.now(),
           isEmailVerified: false, // We'll assume not verified until checked
         );
+        
+        return _currentUser!;
       } else {
         final errorData = jsonDecode(response.body);
         throw errorData['message'] ?? 'Failed to sign in';
@@ -141,7 +137,7 @@ class AuthService {
     }
   }
   
-  /// Sign up with email and password
+  /// Sign up with email and password using Jarvis API
   Future<UserModel> signUpWithEmailAndPassword(String email, String password, {String? name}) async {
     try {
       _logger.i('Signing up with email: $email');
@@ -170,15 +166,15 @@ class AuthService {
         
         // Save auth tokens from the response
         if (data['access_token'] != null) {
-          await _saveAuthToken(
-            data['access_token'],
-            data['refresh_token'] ?? '',
-            data['user_id'] ?? '',
-          );
+          _accessToken = data['access_token'];
+          _refreshToken = data['refresh_token'] ?? '';
+          _userId = data['user_id'] ?? '';
+          
+          await _saveAuthTokens();
         }
         
         // Create and return user model
-        return UserModel(
+        _currentUser = UserModel(
           id: data['user_id'] ?? '',
           uid: data['user_id'] ?? '',
           email: email,
@@ -186,6 +182,8 @@ class AuthService {
           createdAt: DateTime.now(),
           isEmailVerified: false,
         );
+        
+        return _currentUser!;
       } else {
         final errorData = jsonDecode(response.body);
         throw errorData['message'] ?? 'Failed to sign up';
@@ -196,96 +194,175 @@ class AuthService {
     }
   }
   
+  /// Send password reset email
   Future<void> sendPasswordResetEmail(String email) async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.sendPasswordResetEmail(email);
+    try {
+      _logger.i('Sending password reset email to: $email');
+      
+      final requestBody = {
+        'email': email,
+        'reset_password_url': ApiConstants.verificationCallbackUrl,
+      };
+      
+      final response = await http.post(
+        Uri.parse('${ApiConstants.authApiUrl}/api/v1/auth/password/reset'),
+        headers: getAuthHeaders(includeAuth: false),
+        body: jsonEncode(requestBody),
+      );
+      
+      if (response.statusCode != 200 && response.statusCode != 204) {
+        final errorData = jsonDecode(response.body);
+        throw errorData['message'] ?? 'Failed to send password reset email';
+      }
+    } catch (e) {
+      _logger.e('Error sending password reset email: $e');
+      throw e.toString();
+    }
   }
   
+  /// Confirm password reset with code and new password
+  Future<bool> confirmPasswordReset(String code, String newPassword) async {
+    try {
+      _logger.i('Confirming password reset');
+      
+      final requestBody = {
+        'code': code,
+        'new_password': newPassword,
+      };
+      
+      final response = await http.post(
+        Uri.parse('${ApiConstants.authApiUrl}/api/v1/auth/password/reset/confirm'),
+        headers: getAuthHeaders(includeAuth: false),
+        body: jsonEncode(requestBody),
+      );
+      
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        _logger.i('Password reset confirmed successfully');
+        return true;
+      } else {
+        final errorData = jsonDecode(response.body);
+        throw errorData['message'] ?? 'Failed to confirm password reset';
+      }
+    } catch (e) {
+      _logger.e('Error confirming password reset: $e');
+      return false;
+    }
+  }
+  
+  /// Check email verification status
   Future<bool> checkEmailVerificationStatus(String email) async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.checkEmailVerificationStatus(email);
+    try {
+      _logger.i('Checking email verification status for: $email');
+      
+      final requestBody = {
+        'email': email,
+      };
+      
+      final response = await http.post(
+        Uri.parse('${ApiConstants.authApiUrl}${ApiConstants.authEmailVerificationStatus}'),
+        headers: getAuthHeaders(includeAuth: false),
+        body: jsonEncode(requestBody),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['is_verified'] == true;
+      } else {
+        return false;
+      }
+    } catch (e) {
+      _logger.e('Error checking email verification status: $e');
+      return false;
+    }
   }
   
+  /// Resend verification email
   Future<bool> resendVerificationEmail(String email) async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.resendVerificationEmail(email);
+    try {
+      _logger.i('Resending verification email to: $email');
+      
+      final requestBody = {
+        'email': email,
+        'verification_callback_url': ApiConstants.verificationCallbackUrl,
+      };
+      
+      final response = await http.post(
+        Uri.parse('${ApiConstants.authApiUrl}/api/v1/auth/emails/verification/resend'),
+        headers: getAuthHeaders(includeAuth: false),
+        body: jsonEncode(requestBody),
+      );
+      
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      _logger.e('Error resending verification email: $e');
+      return false;
+    }
   }
   
-  Future<UserModel?> processGoogleAuthResponse(Map<String, String> params) async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.processGoogleAuthResponse(params);
-  }
-  
+  /// Force update of auth state
   Future<bool> forceAuthStateUpdate() async {
     try {
       _logger.i('Forcing authentication state update');
       
       // First check if there's a refresh token available
-      final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
-      
-      if (refreshToken == null || refreshToken.isEmpty) {
-        _logger.w('Cannot update auth state: No refresh token available');
-        return false;
+      if (_refreshToken == null || _refreshToken!.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        _refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+        
+        if (_refreshToken == null || _refreshToken!.isEmpty) {
+          _logger.w('Cannot update auth state: No refresh token available');
+          return false;
+        }
       }
       
-      // Use the JarvisAuthProvider but call initialize first
-      final authProvider = JarvisAuthProvider();
-      await authProvider.initialize();
-      
-      // Call provider's refreshToken directly (this handles refreshing the actual token)
-      final result = await authProvider.refreshToken();
-      
-      if (result) {
-        _logger.i('Auth state update successful, token refreshed');
-        return true;
-      } else {
-        _logger.w('Auth state update failed, could not refresh token');
-        return false;
-      }
+      // Try to refresh the token
+      return await refreshToken();
     } catch (e) {
       _logger.e('Error during force auth state update: $e');
       return false;
     }
   }
   
-  Future<UserModel> signInWithGoogle() async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.signInWithGoogle();
-  }
+  /// Get current user
+  UserModel? get currentUser => _currentUser;
   
-  Future<bool> updateClientMetadata(Map<String, dynamic> metadata) async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.updateClientMetadata(metadata);
-  }
-  
-  UserModel? get currentUser {
-    final authProvider = JarvisAuthProvider();
-    return authProvider.currentUser;
-  }
-  
+  /// Reload current user data from API
   Future<void> reloadUser() async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.reloadUser();
+    try {
+      if (_accessToken == null) {
+        _logger.w('Cannot reload user: Not authenticated');
+        return;
+      }
+      
+      final response = await http.get(
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.userProfile}'),
+        headers: getHeaders(),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        _currentUser = UserModel(
+          id: data['id'] ?? _userId ?? '',
+          uid: data['id'] ?? _userId ?? '',
+          email: data['email'] ?? '',
+          name: data['username'] ?? data['name'],
+          createdAt: DateTime.now(),
+          isEmailVerified: true, // Assume verified since we got the profile
+        );
+      } else if (response.statusCode == 401 || response.statusCode == 403) {
+        // Try to refresh the token and retry
+        if (await refreshToken()) {
+          await reloadUser();
+        }
+      }
+    } catch (e) {
+      _logger.e('Error reloading user: $e');
+    }
   }
   
-  Map<String, String> getHeaders() {
-    return {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    };
-  }
-  
-  /// Get authenticated headers
+  /// Get authentication headers
   Map<String, String> getAuthHeaders({bool includeAuth = true}) {
-    final authProvider = JarvisAuthProvider();
     final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
@@ -294,11 +371,22 @@ class AuthService {
       'X-Stack-Publishable-Client-Key': ApiConstants.stackPublishableClientKey,
     };
     
-    if (includeAuth) {
-      final token = authProvider.getCurrentToken();
-      if (token != null) {
-        headers['Authorization'] = 'Bearer $token';
-      }
+    if (includeAuth && _accessToken != null && _accessToken!.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $_accessToken';
+    }
+    
+    return headers;
+  }
+  
+  /// Get regular headers
+  Map<String, String> getHeaders() {
+    final headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $_accessToken';
     }
     
     return headers;
@@ -306,29 +394,63 @@ class AuthService {
   
   /// Check if user is authenticated
   bool isAuthenticated() {
-    final authProvider = JarvisAuthProvider();
-    return authProvider.getCurrentToken() != null;
+    return _accessToken != null && _accessToken!.isNotEmpty;
   }
   
+  /// Check if user is logged in (may refresh token if needed)
   Future<bool> isLoggedIn() async {
-    final authProvider = JarvisAuthProvider();
-    await authProvider.initialize();
-    return await authProvider.isLoggedIn();
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      return true;
+    }
+    
+    // Try to refresh the token if we have a refresh token
+    if (_refreshToken != null && _refreshToken!.isNotEmpty) {
+      return await refreshToken();
+    }
+    
+    // Try loading from shared preferences
+    final prefs = await SharedPreferences.getInstance();
+    _accessToken = prefs.getString(ApiConstants.accessTokenKey);
+    _refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+    
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      return true;
+    }
+    
+    // Try to refresh if we loaded a refresh token from prefs
+    if (_refreshToken != null && _refreshToken!.isNotEmpty) {
+      return await refreshToken();
+    }
+    
+    return false;
   }
   
+  /// Sign out
   Future<bool> signOut() async {
     try {
       _logger.i('Signing out user');
       
-      final authProvider = JarvisAuthProvider();
-      await authProvider.initialize();
-      await authProvider.signOut();
+      if (_accessToken != null && _accessToken!.isNotEmpty) {
+        try {
+          // Call Jarvis API to sign out
+          await http.delete(
+            Uri.parse('${ApiConstants.authApiUrl}${ApiConstants.authSessionCurrent}'),
+            headers: getAuthHeaders(),
+          );
+        } catch (e) {
+          _logger.w('Error calling sign out API: $e');
+          // Continue with local sign out even if API call fails
+        }
+      }
       
-      // Also clear tokens from SharedPreferences directly for redundancy
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(ApiConstants.accessTokenKey);
-      await prefs.remove(ApiConstants.refreshTokenKey);
-      await prefs.remove(ApiConstants.userIdKey);
+      // Clear tokens from storage
+      await _clearAuthTokens();
+      
+      // Clear current user
+      _currentUser = null;
+      _accessToken = null;
+      _refreshToken = null;
+      _userId = null;
       
       _logger.i('User signed out successfully');
       return true;
@@ -337,11 +459,234 @@ class AuthService {
       return false;
     }
   }
+
+  /// Alias for sign in to match JarvisApiService expectations
+  Future<Map<String, dynamic>> signIn(String email, String password) async {
+    try {
+      final user = await signInWithEmailAndPassword(email, password);
+      return {
+        'success': true,
+        'user': user.toMap(),
+        'access_token': _accessToken,
+        'refresh_token': _refreshToken,
+        'user_id': _userId,
+      };
+    } catch (e) {
+      _logger.e('Error in signIn: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Alias for sign up to match JarvisApiService expectations
+  Future<Map<String, dynamic>> signUp(String email, String password, {String? name}) async {
+    try {
+      final user = await signUpWithEmailAndPassword(email, password, name: name);
+      return {
+        'success': true,
+        'user': user.toMap(),
+        'access_token': _accessToken,
+        'refresh_token': _refreshToken,
+        'user_id': _userId,
+      };
+    } catch (e) {
+      _logger.e('Error in signUp: $e');
+      return {
+        'success': false,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Alias for sign out to match JarvisApiService expectations
+  Future<bool> logout() async {
+    return await signOut();
+  }
   
-  Future<void> _saveAuthToken(String accessToken, String refreshToken, String userId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(ApiConstants.accessTokenKey, accessToken);
-    await prefs.setString(ApiConstants.refreshTokenKey, refreshToken);
-    await prefs.setString(ApiConstants.userIdKey, userId);
+  /// Save authentication tokens to storage
+  Future<void> _saveAuthTokens() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      if (_accessToken != null) {
+        await prefs.setString(ApiConstants.accessTokenKey, _accessToken!);
+      }
+      
+      if (_refreshToken != null) {
+        await prefs.setString(ApiConstants.refreshTokenKey, _refreshToken!);
+      }
+      
+      if (_userId != null) {
+        await prefs.setString(ApiConstants.userIdKey, _userId!);
+      }
+    } catch (e) {
+      _logger.e('Error saving auth tokens: $e');
+    }
+  }
+  
+  /// Clear authentication tokens from storage
+  Future<void> _clearAuthTokens() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(ApiConstants.accessTokenKey);
+      await prefs.remove(ApiConstants.refreshTokenKey);
+      await prefs.remove(ApiConstants.userIdKey);
+    } catch (e) {
+      _logger.e('Error clearing auth tokens: $e');
+    }
+  }
+  
+  /// Sign in with Google (redirects to Google auth URL)
+  Future<UserModel> signInWithGoogle() async {
+    try {
+      _logger.i('Starting Google sign-in flow');
+      
+      // Create Google auth URL with required parameters
+      final googleAuthUrl = '${ApiConstants.authApiUrl}${ApiConstants.googleAuthEndpoint}';
+      
+      // Build query parameters
+      final queryParams = {
+        'client_id': ApiConstants.stackProjectId,
+        'redirect_uri': ApiConstants.googleRedirectUri,
+        'response_type': 'code',
+        'scope': 'openid email profile',
+        'state': _generateRandomState(),
+      };
+      
+      // Convert to query string
+      final queryString = Uri(queryParameters: queryParams).query;
+      final fullUrl = '$googleAuthUrl?$queryString';
+      
+      _logger.i('Redirecting to Google auth URL: $fullUrl');
+      
+      // This is a stub implementation - the UI will handle the actual redirect
+      throw 'Please complete Google authentication in your browser';
+    } catch (e) {
+      _logger.e('Error initiating Google sign-in: $e');
+      throw e.toString();
+    }
+  }
+  
+  /// Process Google auth response (after redirect)
+  Future<UserModel?> processGoogleAuthResponse(Map<String, String> params) async {
+    try {
+      _logger.i('Processing Google auth response');
+      
+      // Check for error in response
+      if (params.containsKey('error')) {
+        throw params['error_description'] ?? params['error'] ?? 'Unknown error';
+      }
+      
+      // Get authorization code
+      final code = params['code'];
+      if (code == null || code.isEmpty) {
+        throw 'No authorization code in response';
+      }
+      
+      // Exchange code for tokens
+      final response = await http.post(
+        Uri.parse('${ApiConstants.authApiUrl}${ApiConstants.googleCallbackEndpoint}'),
+        headers: getAuthHeaders(includeAuth: false),
+        body: jsonEncode({
+          'code': code,
+          'redirect_uri': ApiConstants.googleRedirectUri,
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // Save tokens
+        _accessToken = data['access_token'];
+        _refreshToken = data['refresh_token'];
+        _userId = data['user_id'];
+        await _saveAuthTokens();
+        
+        // Load user profile
+        await reloadUser();
+        
+        // Return the user
+        if (_currentUser != null) {
+          return _currentUser;
+        } else {
+          throw 'Failed to get user profile after Google sign-in';
+        }
+      } else {
+        throw 'Failed to exchange code for tokens: ${response.statusCode}';
+      }
+    } catch (e) {
+      _logger.e('Error processing Google auth response: $e');
+      throw e.toString();
+    }
+  }
+  
+  /// Update client metadata
+  Future<bool> updateClientMetadata(Map<String, dynamic> metadata) async {
+    try {
+      _logger.i('Updating client metadata: $metadata');
+      
+      final response = await http.patch(
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.userProfile}'),
+        headers: getHeaders(),
+        body: jsonEncode({
+          'client_metadata': metadata,
+        }),
+      );
+      
+      if (response.statusCode == 200) {
+        // Update current user metadata if available
+        if (_currentUser != null) {
+          final updatedMetadata = {...(_currentUser!.clientMetadata ?? {}), ...metadata};
+          _currentUser = _currentUser!.copyWith(clientMetadata: updatedMetadata);
+        }
+        
+        return true;
+      } else {
+        _logger.e('Error updating client metadata: ${response.statusCode}');
+        return false;
+      }
+    } catch (e) {
+      _logger.e('Error updating client metadata: $e');
+      return false;
+    }
+  }
+  
+  /// Get the user ID
+  String? getUserId() {
+    return _userId;
+  }
+
+  /// Verify if token is valid
+  Future<bool> verifyTokenValid() async {
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      return false;
+    }
+    
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.apiStatus}'),
+        headers: getHeaders(),
+      );
+      
+      return response.statusCode == 200;
+    } catch (e) {
+      _logger.e('Error verifying token: $e');
+      return false;
+    }
+  }
+
+  /// Verify if token has all required scopes
+  Future<bool> verifyTokenHasScopes(List<String> requiredScopes) async {
+    // Simplified implementation for now
+    return await verifyTokenValid();
+  }
+  
+  /// Generate a random state for OAuth security
+  String _generateRandomState() {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final random = timestamp.toString() + (timestamp % 10000).toString();
+    return base64Url.encode(utf8.encode(random)).substring(0, 16);
   }
 }

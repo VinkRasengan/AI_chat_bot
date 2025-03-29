@@ -77,8 +77,7 @@ class _SignupPageState extends State<SignupPage> {
       String errorMsg;
       
       // Check for common API errors
-      if (e.toString().contains('email-already-in-use') || 
-          e.toString().contains('Email already exists')) {
+      if (e.toString().contains('email-already-in-use')) {
         errorMsg = 'Email đã được sử dụng. Vui lòng sử dụng email khác.';
       } else if (e.toString().contains('weak-password')) {
         errorMsg = 'Mật khẩu quá yếu. Vui lòng chọn mật khẩu mạnh hơn.';
@@ -86,7 +85,7 @@ class _SignupPageState extends State<SignupPage> {
         errorMsg = 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối internet của bạn.';
       } else {
         // Use a more user-friendly error message
-        errorMsg = 'Lỗi đăng ký: ${e.toString()}';
+        errorMsg = 'Không thể đăng ký: ${e.toString()}';
       }
       
       setState(() {

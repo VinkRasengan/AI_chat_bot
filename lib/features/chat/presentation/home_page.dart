@@ -235,34 +235,51 @@ class _HomePageState extends State<HomePage> {
   }
   
   Future<void> _createNewChat() async {
-    setState(() {
-      _isLoading = true;
-    });
-
     try {
-      final newSession = await _chatService.createChatSession('New Chat');
+      setState(() {
+        _isLoading = true;
+      });
       
-      if (mounted) {
-        setState(() {
-          _chatSessions.add(newSession);
-          _isLoading = false;
-        });
+      _logger.i('Creating new chat in Home Page');
+      
+      final newChat = await _chatService.createChatSession('New Chat');
+      
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+      });
+      
+      if (newChat.id.isEmpty) {
+        _logger.e('Failed to create new chat, empty ID returned');
         
-        // Navigate to the new chat session
-        _navigateToChatScreen(newSession);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to create new chat. Please try again.')),
+        );
+        return;
       }
+      
+      // Navigate to the chat screen with the new chat
+      _navigateToChatScreen(newChat);
+      
     } catch (e) {
       _logger.e('Error creating chat session: $e');
       
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error creating chat: $e')),
-        );
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = false;
+      });
+      
+      // Show more user-friendly error message
+      String errorMessage = 'Failed to create new chat.';
+      if (e.toString().contains('404') || e.toString().contains('endpoint not available')) {
+        errorMessage = 'Server feature unavailable. Please try again later.';
       }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
     }
   }
   

@@ -6,9 +6,9 @@ import '../../models/chat/chat_session.dart';
 import '../../models/chat/message.dart';
 import '../../constants/api_constants.dart';
 import 'api_service.dart';
-import 'services/auth_service.dart';
 import 'services/user_service.dart';
-import 'services/ai_chat_service.dart';
+import '../auth/auth_service.dart';
+import '../chat/jarvis_chat_service.dart'; // Updated import
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,7 +21,7 @@ class JarvisApiService implements ApiService {
   // Service instances
   late final AuthService _authService;
   late final UserService _userService;
-  late final AiChatService _aiChatService;
+  late final JarvisChatService _chatService; // Updated to use JarvisChatService
   
   // Configuration variables moved from old implementation
   String? _apiKey;
@@ -30,10 +30,9 @@ class JarvisApiService implements ApiService {
   JarvisApiService._internal() {
     _authService = AuthService();
     _userService = UserService(_authService);
-    _aiChatService = AiChatService(_authService);
+    _chatService = JarvisChatService(_authService); // Updated to use JarvisChatService
   }
 
-  @override
   Future<void> initialize() async {
     if (_isInitialized) return;
     
@@ -47,16 +46,16 @@ class JarvisApiService implements ApiService {
         _apiKey = ApiConstants.defaultApiKey;
       }
       
-      // Initialize auth service with error handling
+      // Initialize auth service with error handling - remove the parameter
       try {
-        await _authService.initialize(_apiKey);
+        await _authService.initialize();
         _logger.i('Auth service initialized successfully');
       } catch (e) {
         _logger.e('Error initializing auth service: $e');
         _logger.i('Will retry initialization on the next API call');
       }
       
-      _logger.i('Initialized Jarvis API service with auth, user, and AI chat services');
+      _logger.i('Initialized Jarvis API service with auth, user, and chat services');
       _isInitialized = true;
     } catch (e) {
       _logger.e('Error initializing Jarvis API service: $e');
@@ -164,46 +163,58 @@ class JarvisApiService implements ApiService {
     return await _userService.checkEmailVerificationStatus();
   }
 
-  // AI Chat Methods - delegated to AiChatService
+  // AI Chat Methods - now delegated to JarvisChatService
   
   Future<List<ChatSession>> getConversations() async {
     await _ensureInitialized();
-    return await _aiChatService.getConversations();
+    return await _chatService.getUserChatSessions();
   }
 
   Future<List<Message>> getConversationHistory(String conversationId) async {
     await _ensureInitialized();
-    return await _aiChatService.getConversationHistory(conversationId);
+    return await _chatService.getMessages(conversationId);
   }
 
   Future<Message> sendMessage(String conversationId, String text) async {
     await _ensureInitialized();
-    return await _aiChatService.sendMessage(conversationId, text);
+    final result = await _chatService.sendMessage(conversationId, text);
+    // Convert response map to Message object
+    return Message(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      text: text,
+      isUser: true,
+      timestamp: DateTime.now(),
+      metadata: result,
+    );
   }
 
   Future<ChatSession> createConversation(String title) async {
     await _ensureInitialized();
-    return await _aiChatService.createConversation(title);
+    return await _chatService.createChatSession(title);
   }
 
   Future<bool> deleteConversation(String conversationId) async {
     await _ensureInitialized();
-    return await _aiChatService.deleteConversation(conversationId);
+    return await _chatService.deleteChatSession(conversationId);
   }
 
   Future<void> setSelectedModel(String modelId) async {
     await _ensureInitialized();
-    await _aiChatService.setSelectedModel(modelId);
+    await _chatService.updateSelectedModel(modelId);
   }
 
   Future<String?> getSelectedModel() async {
     await _ensureInitialized();
-    return await _aiChatService.getSelectedModel();
+    return await _chatService.getSelectedModel();
   }
   
   Future<List<Map<String, String>>> getAvailableModels() async {
     await _ensureInitialized();
-    return await _aiChatService.getAvailableModels();
+    // Use the hardcoded model list since JarvisChatService doesn't have this method
+    return ApiConstants.modelNames.entries.map((entry) => {
+      'id': entry.key,
+      'name': entry.value,
+    }).toList();
   }
 
   // API Status Methods

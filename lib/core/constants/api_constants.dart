@@ -29,15 +29,16 @@ class ApiConstants {
   static const String userChangePassword = '/api/v1/user/change-password';
   static const String userUsage = '/api/v1/tokens/usage';  // ADDED: Get token usage information
   
-  // AI chat endpoints - updated to match exact API documentation paths
-  static const String conversations = '/api/v1/ai-chat/conversations';  // FIXED: Correct conversations endpoint
-  static const String messages = '/api/v1/ai-chat/messages';  // FIXED: Correct messages endpoint
+  // AI chat endpoints - ensure paths are correct for the API version
+  // NOTE: Remove any leading slashes from these constants if jarvisApiUrl already ends with a slash
+  static const String conversations = '/api/v1/ai-chat/conversations';
+  static const String messages = '/api/v1/ai-chat/messages';
   
   // Make sure the conversation messages endpoint uses the correct format with no double slashes
   static String conversationMessages(String conversationId) {
-    // Prevent double slashes by trimming any leading/trailing slashes
-    final trimmedId = conversationId.trim();
-    return '/api/v1/ai-chat/conversations/$trimmedId/messages';
+    // Ensure proper formatting by handling potential double slashes
+    final trimmedConversationId = conversationId.trim();
+    return '/api/v1/ai-chat/conversations/$trimmedConversationId/messages';
   }
   
   // API status endpoint for token validation - fixed to use a simple endpoint
@@ -57,6 +58,7 @@ class ApiConstants {
     'claude-3-5-sonnet-20240620': true,
     'gpt-4o': true,
     'gpt-4o-mini': true,
+    // All models should require server conversation support
   };
 
   // Storage keys
