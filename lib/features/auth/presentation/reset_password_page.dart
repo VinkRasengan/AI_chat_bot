@@ -53,40 +53,31 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
       _logger.i('Attempting to reset password with code: ${widget.code}');
       
       // Call auth service to confirm password reset
-      await _authService.confirmPasswordReset(
+      final success = await _authService.confirmPasswordReset(
         widget.code,
         _passwordController.text,
       );
       
       if (!mounted) return;
       
-      _logger.i('Password reset successful');
-      
-      setState(() {
-        _isSuccess = true;
-        _isLoading = false;
-      });
+      if (success) {
+        setState(() {
+          _isSuccess = true;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _errorMessage = 'Không thể đặt lại mật khẩu. Vui lòng thử lại.';
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       _logger.e('Password reset error: $e');
       
       if (!mounted) return;
       
-      String errorMsg;
-      
-      // Check for common API errors
-      if (e.toString().contains('expired-action-code')) {
-        errorMsg = 'Liên kết đặt lại mật khẩu đã hết hạn';
-      } else if (e.toString().contains('invalid-action-code')) {
-        errorMsg = 'Liên kết đặt lại mật khẩu không hợp lệ';
-      } else if (e.toString().contains('network')) {
-        errorMsg = 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối internet của bạn.';
-      } else {
-        // Use a more user-friendly error message
-        errorMsg = 'Không thể đặt lại mật khẩu: ${e.toString()}';
-      }
-      
       setState(() {
-        _errorMessage = errorMsg;
+        _errorMessage = 'Lỗi: ${e.toString()}';
         _isLoading = false;
       });
     }
@@ -129,111 +120,124 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
       appBar: AppBar(
         title: const Text('Đặt lại mật khẩu'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: _isSuccess ? _buildSuccessContent() : _buildResetContent(),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: _isSuccess ? _buildSuccessContent() : _buildResetContent(),
+        ),
       ),
     );
   }
 
   Widget _buildResetContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'Tạo mật khẩu mới',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Tạo mật khẩu mới',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Mật khẩu mới phải khác với mật khẩu cũ và đáp ứng các yêu cầu bảo mật.',
-          style: TextStyle(
-            fontSize: 16,
+          const SizedBox(height: 16),
+          const Text(
+            'Vui lòng nhập mật khẩu mới của bạn.',
+            style: TextStyle(
+              fontSize: 16,
+            ),
           ),
-        ),
-        const SizedBox(height: 24),
-        PasswordField(
-          controller: _passwordController,
-          labelText: 'Mật khẩu mới',
-          onChanged: (value) {
-            setState(() {
-              _passwordStrength = PasswordValidator.getPasswordStrength(value);
-              _errorMessage = null;
-            });
-          },
-        ),
-        Text(
-          'Độ mạnh: $_passwordStrength',
-          style: TextStyle(
-            color: PasswordValidator.getPasswordStrengthColor(_passwordStrength),
+          const SizedBox(height: 24),
+          PasswordField(
+            controller: _passwordController,
+            labelText: 'Mật khẩu mới',
+            onChanged: (value) {
+              setState(() {
+                _passwordStrength = PasswordValidator.getPasswordStrength(value);
+                _errorMessage = null;
+              });
+            },
           ),
-        ),
-        const SizedBox(height: 8),
-        PasswordRequirementWidget(
-          password: _passwordController.text,
-          showTitle: true,
-        ),
-        const SizedBox(height: 16),
-        PasswordField(
-          controller: _confirmPasswordController,
-          labelText: 'Xác nhận mật khẩu mới',
-          errorText: _errorMessage,
-          onChanged: (_) => setState(() => _errorMessage = null),
-          onSubmit: _resetPassword,
-        ),
-        const SizedBox(height: 24),
-        SubmitButton(
-          label: 'Đặt lại mật khẩu',
-          onPressed: _resetPassword,
-          isLoading: _isLoading,
-        ),
-      ],
+          if (_passwordController.text.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: PasswordValidator.getPasswordStrengthRatio(_passwordStrength),
+              color: PasswordValidator.getPasswordStrengthColor(_passwordStrength),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Độ mạnh: $_passwordStrength',
+              style: TextStyle(
+                color: PasswordValidator.getPasswordStrengthColor(_passwordStrength),
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          PasswordRequirementWidget(
+            password: _passwordController.text,
+            showTitle: true,
+          ),
+          const SizedBox(height: 16),
+          PasswordField(
+            controller: _confirmPasswordController,
+            labelText: 'Xác nhận mật khẩu mới',
+            errorText: _errorMessage,
+            onChanged: (_) => setState(() => _errorMessage = null),
+            onSubmit: _resetPassword,
+          ),
+          const SizedBox(height: 24),
+          SubmitButton(
+            label: 'Đặt lại mật khẩu',
+            onPressed: _resetPassword,
+            isLoading: _isLoading,
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildSuccessContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Icon(
-          Icons.check_circle_outline,
-          size: 72,
-          color: Colors.green,
-        ),
-        const SizedBox(height: 24),
-        const Text(
-          'Đặt lại mật khẩu thành công',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.check_circle_outline,
+            size: 80,
+            color: Colors.green,
           ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Mật khẩu của bạn đã được đặt lại thành công. Bạn có thể đăng nhập bằng mật khẩu mới.',
-          style: TextStyle(
-            fontSize: 16,
+          const SizedBox(height: 24),
+          const Text(
+            'Mật khẩu đã được đặt lại thành công',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 24),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const LoginPage(),
-              ),
-              (route) => false,
-            );
-          },
-          child: const Text('Đăng nhập ngay'),
-        ),
-      ],
+          const SizedBox(height: 16),
+          const Text(
+            'Bạn có thể đăng nhập bằng mật khẩu mới',
+            style: TextStyle(
+              fontSize: 16,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LoginPage(),
+                ),
+              );
+            },
+            child: const Text('Đăng nhập'),
+          ),
+        ],
+      ),
     );
   }
 

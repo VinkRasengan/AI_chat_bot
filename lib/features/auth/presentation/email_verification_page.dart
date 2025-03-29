@@ -421,7 +421,7 @@ class EmailVerificationPageState extends State<EmailVerificationPage> {
             const Divider(),
             const SizedBox(height: 16),
             Text(
-              "Your account is almost ready! Please verify your email to continue.",
+              'Your account is almost ready! Please verify your email to continue.',
               style: TextStyle(fontSize: 16, color: Colors.grey[700]),
               textAlign: TextAlign.center,
             ),

@@ -138,32 +138,27 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       children: [
         const Icon(
           Icons.check_circle_outline,
-          size: 72,
+          size: 80,
           color: Colors.green,
         ),
         const SizedBox(height: 24),
         const Text(
-          'Đã gửi email đặt lại mật khẩu',
+          'Email sent successfully',
           style: TextStyle(
-            fontSize: 24,
+            fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 16),
         Text(
-          'Chúng tôi đã gửi liên kết đặt lại mật khẩu đến ${_emailController.text.trim()}',
-          style: const TextStyle(
-            fontSize: 16,
-          ),
+          'We have sent a password reset link to ${_emailController.text.trim()}. '
+          'Please check your inbox and follow the instructions.',
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 8),
         const Text(
-          'Vui lòng kiểm tra hộp thư và làm theo hướng dẫn để đặt lại mật khẩu.',
-          style: TextStyle(
-            fontSize: 16,
-          ),
+          'If you do not see the email in your inbox, check your spam folder.',
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 24),
@@ -176,7 +171,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
               ),
             );
           },
-          child: const Text('Quay lại đăng nhập'),
+          child: const Text('Return to Login'),
         ),
       ],
     );

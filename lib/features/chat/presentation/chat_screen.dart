@@ -25,6 +25,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final AuthService _authService = AuthService();
   late final JarvisChatService _chatService;
   final Logger _logger = Logger();
+  final TextEditingController _textController = TextEditingController();
   
   List<Message> _messages = [];
   bool _isLoading = true;
@@ -164,69 +165,88 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _sendMessage(String text) async {
-    if (text.isEmpty) return;
+    if (text.trim().isEmpty) return;
     
     setState(() {
-      _isLoading = true;
-    });
-    
-    try {
-      final userMessage = Message(
+      // Add user message immediately to UI
+      _messages.add(Message(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
         text: text,
         isUser: true,
         timestamp: DateTime.now(),
-      );
+      ));
+      
+      // Add a temporary typing indicator for the bot
+      _messages.add(Message(
+        id: 'typing-${DateTime.now().millisecondsSinceEpoch}',
+        text: '...',
+        isUser: false,
+        isTyping: true,
+        timestamp: DateTime.now(),
+      ));
+    });
+    
+    try {
+      // Clear input field and scroll to bottom
+      _textController.clear();
+      _scrollToBottom();
+      
+      // Send the message
+      final result = await _chatService.sendMessage(widget.chatSession.id, text);
       
       setState(() {
-        _messages.add(userMessage);
-      });
-      
-      final bool isUsingDirectApi = await _chatService.isUsingDirectGeminiApi();
-      
-      if (isUsingDirectApi) {
-        final response = await _chatService.getDirectAIResponse(text);
+        // Remove the typing indicator
+        _messages.removeWhere((message) => message.isTyping);
         
-        setState(() {
+        if (result['success'] == true) {
+          // Add the bot's response from the API
           _messages.add(Message(
-            text: response,
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            text: result['message'] ?? 'No response',
             isUser: false,
             timestamp: DateTime.now(),
           ));
-          _isLoading = false;
-        });
-      } else {
-        await _chatService.sendMessage(widget.chatSession.id, text);
-        
-        final updatedMessages = await _chatService.getMessages(widget.chatSession.id);
-        
-        if (mounted) {
-          setState(() {
-            _messages = updatedMessages;
-            _isLoading = false;
-          });
+        } else {
+          // Show error message
+          _messages.add(Message(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            text: 'Error: ${result['error'] ?? 'Failed to get response'}',
+            isUser: false,
+            timestamp: DateTime.now(),
+          ));
         }
-      }
+      });
+      
+      _scrollToBottom();
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+      setState(() {
+        // Remove the typing indicator
+        _messages.removeWhere((message) => message.isTyping);
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
+        // Show error message
+        _messages.add(Message(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          text: 'Error: $e',
+          isUser: false,
+          timestamp: DateTime.now(),
+        ));
+      });
+      
+      _scrollToBottom();
     }
   }
   
   void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
+    // Use Future.delayed to ensure the UI has updated first
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
   
   void _onModelChanged(String model) {
@@ -235,6 +255,17 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     
     _chatService.updateSelectedModel(model);
+  }
+  
+  Widget _buildMessageBubble(Message message, int index) {
+    return MessageBubbleWidget(
+      key: ValueKey(message.id ?? message.timestamp.toString()),
+      message: message,
+      showTimestamp: true,
+      onTap: () {
+        // Handle message tap if needed
+      },
+    );
   }
   
   @override
@@ -247,10 +278,14 @@ class _ChatScreenState extends State<ChatScreen> {
         elevation: 1,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        leading: IconButton(
-          icon: const Icon(Icons.menu),
-          onPressed: () {
-            Scaffold.of(context).openDrawer();
+        leading: Builder(
+          builder: (BuildContext context) {
+            return IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () {
+                Scaffold.of(context).openDrawer();
+              },
+            );
           },
         ),
         title: Column(
@@ -304,17 +339,12 @@ class _ChatScreenState extends State<ChatScreen> {
                                   timestamp: DateTime.now(), 
                                   isTyping: true,
                                 ),
-                                previousMessage: _messages.isNotEmpty ? _messages.last : null,
                               );
                             }
                             
                             final message = _messages[index];
-                            final previousMessage = index > 0 ? _messages[index - 1] : null;
                             
-                            return MessageBubbleWidget(
-                              message: message,
-                              previousMessage: previousMessage,
-                            );
+                            return _buildMessageBubble(message, index);
                           },
                         ),
             ),

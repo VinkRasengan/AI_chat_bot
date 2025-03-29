@@ -1,147 +1,135 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../../core/models/chat/message.dart';
 
-class MessageBubbleWidget extends StatelessWidget {
+class MessageBubbleWidget extends StatefulWidget {
   final Message message;
-  final Message? previousMessage;
+  final VoidCallback? onTap;
+  final bool showTimestamp;
   
   const MessageBubbleWidget({
-    super.key,
+    Key? key,
     required this.message,
-    this.previousMessage,
-  });
+    this.onTap,
+    this.showTimestamp = true,
+  }) : super(key: key);
+  
+  @override
+  State<MessageBubbleWidget> createState() => _MessageBubbleWidgetState();
+}
 
+class _MessageBubbleWidgetState extends State<MessageBubbleWidget> {
+  late TapGestureRecognizer _tapRecognizer;
+  
+  @override
+  void initState() {
+    super.initState();
+    _tapRecognizer = TapGestureRecognizer()
+      ..onTap = widget.onTap;
+  }
+  
+  @override
+  void dispose() {
+    _tapRecognizer.dispose(); // Important: Dispose the recognizer
+    super.dispose();
+  }
+  
   @override
   Widget build(BuildContext context) {
-    final isUser = message.isUser;
+    final isUser = widget.message.isUser;
+    final isTyping = widget.message.isTyping;
     
-    // Check if we should show the sender label (when sender changes)
-    final showSenderLabel = previousMessage == null || previousMessage!.isUser != message.isUser;
-    
-    if (message.isTyping) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showSenderLabel)
-            Padding(
-              padding: const EdgeInsets.only(left: 16, top: 16, bottom: 4),
-              child: Text(
-                'AI Assistant',
-                style: TextStyle(
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                ),
-              ),
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.8,
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+        decoration: BoxDecoration(
+          color: isUser 
+              ? Theme.of(context).primaryColor 
+              : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(26), // 0.1 * 255 = ~26
+              blurRadius: 3,
+              offset: const Offset(0, 1),
             ),
-          Container(
-            margin: const EdgeInsets.only(left: 16, right: 60, bottom: 10),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[100],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).primaryColor),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Text('Thinking...'),
-              ],
-            ),
-          ),
-        ],
-      );
-    }
-    
-    return Column(
-      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (isTyping)
+              _buildTypingIndicator()
+            else
+              _buildMessageText(context),
+            
+            if (widget.showTimestamp && !isTyping)
+              _buildTimestamp(),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildMessageText(BuildContext context) {
+    return SelectableText.rich(
+      TextSpan(
+        text: widget.message.text,
+        style: TextStyle(
+          color: widget.message.isUser ? Colors.white : null,
+        ),
+        recognizer: widget.onTap != null ? _tapRecognizer : null,
+      ),
+    );
+  }
+  
+  Widget _buildTypingIndicator() {
+    return const Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        // Show sender label when sender changes
-        if (showSenderLabel)
-          Padding(
-            padding: EdgeInsets.only(
-              left: isUser ? 0 : 16, 
-              right: isUser ? 16 : 0,
-              top: 16, 
-              bottom: 4,
-            ),
-            child: Text(
-              isUser ? 'You' : 'AI Assistant',
-              style: TextStyle(
-                color: Colors.grey[700],
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        
-        Container(
-          margin: EdgeInsets.only(
-            left: isUser ? 60 : 16, 
-            right: isUser ? 16 : 60,
-            bottom: 10,
-          ),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isUser ? const Color(0xFF1A7BF5) : Colors.grey[100],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                message.text,
-                style: TextStyle(
-                  color: isUser ? Colors.white : Colors.black,
-                  fontSize: 15,
-                ),
-              ),
-            ],
+        SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
           ),
         ),
-        
-        // Show timestamp below the message, aligned with the message
-        Padding(
-          padding: EdgeInsets.only(
-            left: isUser ? 0 : 16, 
-            right: isUser ? 16 : 0,
-            bottom: 8,
-          ),
-          child: Text(
-            _formatTimestamp(message.timestamp),
-            style: TextStyle(
-              color: Colors.grey[600],
-              fontSize: 11,
-            ),
-          ),
-        ),
+        SizedBox(width: 8),
+        Text('Đang nhập...'),
       ],
+    );
+  }
+  
+  Widget _buildTimestamp() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        _formatTimestamp(widget.message.timestamp),
+        style: TextStyle(
+          fontSize: 10,
+          color: widget.message.isUser 
+              ? Colors.white.withAlpha(179) // 0.7 * 255 = ~179
+              : Colors.grey,
+        ),
+      ),
     );
   }
   
   String _formatTimestamp(DateTime timestamp) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final messageDate = DateTime(timestamp.year, timestamp.month, timestamp.day);
+    final messageDate = DateTime(
+      timestamp.year, timestamp.month, timestamp.day);
     
-    // Format the time
-    String timeStr = '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
-    
-    // If not today, include the date
-    if (messageDate != today) {
-      final monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      timeStr = '${timestamp.day} ${monthNames[timestamp.month - 1]}, $timeStr';
+    if (messageDate == today) {
+      return '${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
+    } else {
+      return '${timestamp.day}/${timestamp.month} ${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}';
     }
-    
-    return timeStr;
   }
 }

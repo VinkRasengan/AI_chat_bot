@@ -42,6 +42,8 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
 
+      if (!mounted) return;
+
       setState(() {
         _isDarkMode = prefs.getBool('isDarkMode') ?? false;
         _selectedModel = prefs.getString('selectedModel');
@@ -411,19 +413,20 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _refreshAuthToken(BuildContext context) async {
+    final isContextMounted = mounted;
     final success = await _chatService.forceAuthStateUpdate();
     
-    if (!mounted) return;
-    
-    setState(() {});
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Auth token refreshed successfully')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to refresh auth token')),
-      );
+    if (isContextMounted && mounted) {
+      setState(() {});
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Auth token refreshed successfully')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to refresh auth token')),
+        );
+      }
     }
   }
 
@@ -494,23 +497,24 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _clearCache() async {
+    final isContextMounted = mounted;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('conversations');
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cache cleared')),
-      );
+      if (isContextMounted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cache cleared')),
+        );
+      }
     } catch (e) {
       _logger.e('Error clearing cache: $e');
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error clearing cache: $e')),
-      );
+      if (isContextMounted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error clearing cache: $e')),
+        );
+      }
     }
   }
 

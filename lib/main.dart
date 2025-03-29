@@ -40,6 +40,8 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
+      // Add ScaffoldMessenger at the root to fix context issues
+      scaffoldMessengerKey: GlobalKey<ScaffoldMessengerState>(),
       initialRoute: '/',
       onGenerateRoute: (settings) {
         // Handle Google auth callback

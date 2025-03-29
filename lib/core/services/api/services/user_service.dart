@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/user_model.dart';
 import '../../../constants/api_constants.dart';
 import '../../auth/auth_service.dart';

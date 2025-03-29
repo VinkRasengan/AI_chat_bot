@@ -25,18 +25,16 @@ class ApiConstants {
   static const String authEmailVerificationStatus = '/api/v1/auth/emails/verification/status';
   
   // User profile endpoints - updated to match actual API documentation
-  static const String userProfile = '/api/v1/auth/me';  // UPDATED: Correct endpoint for getting current user
+  static const String userProfile = '/api/v1/auth/me';
   static const String userChangePassword = '/api/v1/user/change-password';
-  static const String userUsage = '/api/v1/tokens/usage';  // ADDED: Get token usage information
+  static const String userUsage = '/api/v1/tokens/usage';
   
   // AI chat endpoints - ensure paths are correct for the API version
-  // NOTE: Remove any leading slashes from these constants if jarvisApiUrl already ends with a slash
   static const String conversations = '/api/v1/ai-chat/conversations';
   static const String messages = '/api/v1/ai-chat/messages';
   
-  // Make sure the conversation messages endpoint uses the correct format with no double slashes
+  // Make sure the conversation messages endpoint uses the correct format
   static String conversationMessages(String conversationId) {
-    // Ensure proper formatting by handling potential double slashes
     final trimmedConversationId = conversationId.trim();
     return '/api/v1/ai-chat/conversations/$trimmedConversationId/messages';
   }

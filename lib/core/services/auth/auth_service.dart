@@ -685,7 +685,7 @@ class AuthService {
   
   /// Generate a random state for OAuth security
   String _generateRandomState() {
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;  // Changed from const to final
     final random = timestamp.toString() + (timestamp % 10000).toString();
     return base64Url.encode(utf8.encode(random)).substring(0, 16);
   }

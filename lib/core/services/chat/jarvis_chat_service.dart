@@ -99,8 +99,8 @@ class JarvisChatService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         
-        // Parse response according to documented structure
-        if (data['items'] != null) {
+        // Parse response according to documented structure with better error handling
+        if (data.containsKey('items') && data['items'] is List) {
           _chatSessions = (data['items'] as List)
               .map((item) => ChatSession(
                     id: item['id'] ?? '',
@@ -120,9 +120,10 @@ class JarvisChatService {
           }
           
           return _chatSessions;
+        } else {
+          _logger.w('No items found in chat sessions response or invalid format');
+          return [];
         }
-        
-        return [];
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         // Limit the number of retries to avoid infinite recursion
         if (retryCount >= 2) {
@@ -164,55 +165,57 @@ class JarvisChatService {
         throw 'Selected model does not support conversation history. Please select another model.';
       }
       
-      // Create an API request body
-      final requestBody = {
-        'title': title.isEmpty ? 'New Chat' : title,
-        'assistantModel': 'dify',  // Required parameter per API docs
-      };
-      
-      // Add assistant ID if we have a selected model
-      if (selectedModel != null && selectedModel.isNotEmpty) {
-        requestBody['assistantId'] = selectedModel;
-      }
+      // Based on the example code, we need to send an initial message to create a conversation
+      // Since there's no direct endpoint for creating empty conversations
+      final modelName = ApiConstants.modelNames[selectedModel ?? ApiConstants.defaultModel] ?? 'AI Assistant';
       
       // Get headers and add x-jarvis-guid header
       final headers = _authService.getHeaders();
       headers['x-jarvis-guid'] = '';
       
-      // Log the complete URL and headers for debugging
-      final url = '${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}';
-      _logger.d('Creating conversation with URL: $url');
-      _logger.d('Request headers: ${headers.toString()}');
-      _logger.d('Request body: ${jsonEncode(requestBody)}');
-      
-      // Make API request
+      // Initial message to create conversation
       final response = await http.post(
-        Uri.parse(url),
+        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.messages}'),
         headers: headers,
-        body: jsonEncode(requestBody),
+        body: jsonEncode({
+          'content': 'Create a new chat titled: $title',
+          'files': [],
+          'metadata': {
+            'conversation': {
+              'messages': []  // No previous messages since this is new
+            }
+          },
+          'assistant': {
+            'id': selectedModel ?? ApiConstants.defaultModel,
+            'model': 'dify',
+            'name': modelName
+          }
+        }),
       );
       
-      if (response.statusCode == 201 || response.statusCode == 200) {
+      _logger.d('Create conversation response: ${response.statusCode} ${response.body}');
+      
+      if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
+        
+        // Get the conversation ID from the response
+        final conversationId = data['conversationId'] ?? '';
+        
+        if (conversationId.isEmpty) {
+          throw 'Failed to get conversation ID from response';
+        }
         
         // Create a chat session from the response
         final chatSession = ChatSession(
-          id: data['id'] ?? '',
-          title: data['title'] ?? 'New Chat',
-          createdAt: data['createdAt'] != null
-              ? DateTime.fromMillisecondsSinceEpoch(data['createdAt'] * 1000)
-              : DateTime.now(),
+          id: conversationId,
+          title: title.isEmpty ? 'New Chat' : title,
+          createdAt: DateTime.now(),
         );
         
         // Clear cache to force refresh on next getUserChatSessions
         _lastChatSessionsRefresh = null;
         
         return chatSession;
-      } else if (response.statusCode == 404) {
-        // API endpoint not found
-        _logger.e('Conversation creation endpoint not found (404).');
-        _logger.d('Response body: ${response.body}');
-        throw 'API endpoint not available. Please contact support.';
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         // Limit the number of retries
         if (retryCount >= 2) {
@@ -294,21 +297,25 @@ class JarvisChatService {
         final data = jsonDecode(response.body);
         List<Message> messages = [];
         
-        // Parse items array from the response
-        for (var item in data['items'] ?? []) {
-          // User message has a 'query' field, bot message has an 'answer' field
-          final bool isUserMessage = item.containsKey('query');
-          final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
-          
-          messages.add(Message(
-            id: item['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-            text: content,
-            isUser: isUserMessage,
-            timestamp: item['createdAt'] != null
-                ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
-                : DateTime.now(),
-            metadata: item,
-          ));
+        // Parse items array from the response with better error handling
+        if (data.containsKey('items') && data['items'] is List) {
+          for (var item in data['items']) {
+            // User message has a 'query' field, bot message has an 'answer' field
+            final bool isUserMessage = item.containsKey('query');
+            final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
+            
+            messages.add(Message(
+              id: item['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+              text: content,
+              isUser: isUserMessage,
+              timestamp: item['createdAt'] != null
+                  ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
+                  : DateTime.now(),
+              metadata: item,
+            ));
+          }
+        } else {
+          _logger.w('No items found in messages response or invalid format');
         }
         
         // Store pagination info if available for potential future use
@@ -331,8 +338,42 @@ class JarvisChatService {
         // Try to refresh token and retry with non-recursive approach
         final refreshed = await _authService.refreshToken();
         if (refreshed) {
-          // Increment retry count and try again, but don't call recursively
-          return await getMessages(conversationId, retryCount: retryCount + 1);
+          // Get fresh headers after token refresh
+          final newHeaders = _authService.getHeaders();
+          newHeaders['x-jarvis-guid'] = '';
+          
+          // Retry the request with fresh headers
+          final retryResponse = await http.get(
+            uri,
+            headers: newHeaders,
+          );
+          
+          if (retryResponse.statusCode == 200) {
+            final data = jsonDecode(retryResponse.body);
+            List<Message> messages = [];
+            
+            // Parse items array from the response
+            for (var item in data['items'] ?? []) {
+              // User message has a 'query' field, bot message has an 'answer' field
+              final bool isUserMessage = item.containsKey('query');
+              final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
+              
+              messages.add(Message(
+                id: item['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                text: content,
+                isUser: isUserMessage,
+                timestamp: item['createdAt'] != null
+                    ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
+                    : DateTime.now(),
+                metadata: item,
+              ));
+            }
+            
+            return messages;
+          } else {
+            _logger.w('Retry failed after token refresh, returning empty message list');
+            return [];
+          }
         } else {
           _logger.w('Token refresh failed, returning empty message list');
           return [];
@@ -354,12 +395,15 @@ class JarvisChatService {
       
       // Get selected model
       final selectedModel = await getSelectedModel() ?? ApiConstants.defaultModel;
+      if (selectedModel == ApiConstants.defaultModel) {
+        _logger.w('Using default model as no model was selected');
+      }
       final modelName = ApiConstants.modelNames[selectedModel] ?? 'AI Assistant';
       
       // Get conversation history for proper formatting
       final messages = await getMessages(conversationId);
       
-      // Format messages according to API requirements
+      // Format messages according to API requirements - only include previous messages
       final formattedMessages = messages.map((msg) => {
         'role': msg.isUser ? 'user' : 'model',
         'content': msg.text,
@@ -371,18 +415,6 @@ class JarvisChatService {
         }
       }).toList();
       
-      // Add current message to list
-      formattedMessages.add({
-        'role': 'user',
-        'content': message,
-        'files': [],
-        'assistant': {
-          'id': selectedModel,
-          'model': 'dify',
-          'name': modelName
-        }
-      });
-      
       // Get headers and add x-jarvis-guid header
       final headers = _authService.getHeaders();
       headers['x-jarvis-guid'] = '';
@@ -392,12 +424,12 @@ class JarvisChatService {
         Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.messages}'),
         headers: headers,
         body: jsonEncode({
-          'content': message,
+          'content': message, // New message only in content field
           'files': [],
           'metadata': {
             'conversation': {
               'id': conversationId,
-              'messages': formattedMessages
+              'messages': formattedMessages // Only previous messages, not including the new one
             }
           },
           'assistant': {
@@ -414,18 +446,31 @@ class JarvisChatService {
         _logger.i('Message sent successfully. Response: ${data['message']}');
         _logger.d('Conversation ID: ${data['conversationId']}, Remaining Usage: ${data['remainingUsage']}');
         
+        // Force the cache to refresh for this conversation since we have new messages
+        _lastChatSessionsRefresh = null;
+        
+        // Return both the user message and AI response for proper UI updates
         return {
-          'message': data['message'],
+          'message': data['message'],          // AI's response text
           'conversationId': data['conversationId'],
-          'remainingUsage': data['remainingUsage']
+          'remainingUsage': data['remainingUsage'],
+          'userMessage': message,              // Original user message
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'success': true
         };
       } else {
         _logger.e('Error sending message: ${response.statusCode} ${response.body}');
-        throw 'Failed to send message: ${response.statusCode}';
+        return {
+          'error': 'Failed to send message: ${response.statusCode}',
+          'success': false
+        };
       }
     } catch (e) {
       _logger.e('Error sending message: $e');
-      throw 'Error: $e';
+      return {
+        'error': 'Failed to send message: $e',
+        'success': false
+      };
     }
   }
   

@@ -3,29 +3,34 @@ import 'package:flutter/material.dart';
 class ChatInputWidget extends StatefulWidget {
   final Function(String) onSendMessage;
   final bool isLoading;
+  final bool isDisabled;
+  final String? hintText;
   
   const ChatInputWidget({
-    super.key,
+    Key? key,
     required this.onSendMessage,
     this.isLoading = false,
-  });
-
+    this.isDisabled = false,
+    this.hintText,
+  }) : super(key: key);
+  
   @override
   State<ChatInputWidget> createState() => _ChatInputWidgetState();
 }
 
 class _ChatInputWidgetState extends State<ChatInputWidget> {
-  final TextEditingController _messageController = TextEditingController();
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
   bool _hasText = false;
   
   @override
   void initState() {
     super.initState();
-    _messageController.addListener(_onTextChanged);
+    _controller.addListener(_updateHasText);
   }
   
-  void _onTextChanged() {
-    final hasText = _messageController.text.trim().isNotEmpty;
+  void _updateHasText() {
+    final hasText = _controller.text.trim().isNotEmpty;
     if (hasText != _hasText) {
       setState(() {
         _hasText = hasText;
@@ -33,115 +38,104 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
     }
   }
   
-  void _sendMessage() {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
+  void _handleSubmit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty || widget.isLoading || widget.isDisabled) return;
     
     widget.onSendMessage(text);
-    _messageController.clear();
+    _controller.clear();
+    // Keep focus after sending
+    _focusNode.requestFocus();
   }
   
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).scaffoldBackgroundColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 12.0, red: Colors.black.r.toDouble(), green: Colors.black.g.toDouble(), blue: Colors.black.b.toDouble()),
-            offset: const Offset(0, -1),
+            color: Colors.black.withAlpha(13), // 0.05 * 255 = ~13
             blurRadius: 3,
+            offset: const Offset(0, -1),
           ),
         ],
-        border: Border(
-          top: BorderSide(
-            color: Colors.grey.withValues(alpha: 51.0, red: Colors.grey.r.toDouble(), green: Colors.grey.g.toDouble(), blue: Colors.grey.b.toDouble()),
-          ),
-        ),
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: Colors.grey.withValues(alpha: 76.0, red: Colors.grey.r.toDouble(), green: Colors.grey.g.toDouble(), blue: Colors.grey.b.toDouble()),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 12.0, red: Colors.black.r.toDouble(), green: Colors.black.g.toDouble(), blue: Colors.black.b.toDouble()),
-              spreadRadius: 1,
-              blurRadius: 2,
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _messageController,
-                decoration: InputDecoration(
-                  hintText: 'Message AI Assistant...',
-                  hintStyle: TextStyle(color: Colors.grey[500]),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              enabled: !widget.isDisabled,
+              textInputAction: TextInputAction.send,
+              minLines: 1,
+              maxLines: 5,
+              decoration: InputDecoration(
+                hintText: widget.hintText ?? 'Type a message...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
                 ),
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _sendMessage(),
-                enabled: !widget.isLoading,
-                maxLines: null,
-                minLines: 1,
-                textCapitalization: TextCapitalization.sentences,
-                style: const TextStyle(fontSize: 15),
+                filled: true,
+                fillColor: widget.isDisabled 
+                    ? Colors.grey.shade200 
+                    : Theme.of(context).cardColor,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
               ),
+              onSubmitted: (_) => _handleSubmit(),
             ),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(right: 8),
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: _hasText 
-                    ? const Color(0xFF1A7BF5).withValues(alpha: 255.0, red: 26.0, green: 123.0, blue: 245.0) 
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: IconButton(
-                icon: widget.isLoading 
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            _hasText 
-                                ? const Color(0xFFFFFFFF).withValues(alpha: 255.0, red: 255.0, green: 255.0, blue: 255.0) 
-                                : Colors.grey[400]!.withValues(alpha: 102.0, red: Colors.grey[400]!.r.toDouble(), green: Colors.grey[400]!.g.toDouble(), blue: Colors.grey[400]!.b.toDouble()),
+          ),
+          const SizedBox(width: 8),
+          // Use Builder to get a context with the Scaffold ancestor
+          Builder(
+            builder: (context) => Material(
+              color: _hasText && !widget.isLoading && !widget.isDisabled
+                  ? Theme.of(context).primaryColor
+                  : Colors.grey.shade300,
+              shape: const CircleBorder(),
+              child: InkWell(
+                onTap: _hasText && !widget.isLoading && !widget.isDisabled 
+                    ? _handleSubmit 
+                    : null,
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
+                  child: widget.isLoading 
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
                           ),
+                        )
+                      : Icon(
+                          Icons.send,
+                          color: _hasText && !widget.isDisabled
+                              ? Colors.white
+                              : Colors.grey.shade400,
                         ),
-                      )
-                    : Icon(
-                        Icons.send,
-                        color: _hasText 
-                            ? const Color(0xFFFFFFFF).withValues(alpha: 255.0, red: 255.0, green: 255.0, blue: 255.0) 
-                            : Colors.grey[400]!.withValues(alpha: 102.0, red: Colors.grey[400]!.r.toDouble(), green: Colors.grey[400]!.g.toDouble(), blue: Colors.grey[400]!.b.toDouble()),
-                        size: 18,
-                      ),
-                splashRadius: 22,
-                onPressed: (_hasText && !widget.isLoading) ? _sendMessage : null,
-                padding: EdgeInsets.zero,
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
   
   @override
   void dispose() {
-    _messageController.removeListener(_onTextChanged);
-    _messageController.dispose();
+    _controller.removeListener(_updateHasText);
+    _controller.dispose();
+    _focusNode.dispose();
     super.dispose();
   }
 }
