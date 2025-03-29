@@ -10,6 +10,7 @@ import 'services/auth_service.dart';
 import 'services/user_service.dart';
 import 'services/ai_chat_service.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class JarvisApiService implements ApiService {
   static final JarvisApiService _instance = JarvisApiService._internal();
@@ -82,8 +83,25 @@ class JarvisApiService implements ApiService {
   }
   
   Future<bool> forceTokenRefresh() async {
-    await _ensureInitialized();
-    return await _authService.forceTokenRefresh();
+    try {
+      _logger.i('Forcing token refresh via API service');
+      
+      // Check if refresh token is available directly before attempting refresh
+      final prefs = await SharedPreferences.getInstance();
+      final refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+      
+      if (refreshToken == null || refreshToken.isEmpty) {
+        _logger.w('Cannot force token refresh: No refresh token available in storage');
+        return false;
+      }
+
+      // Call AuthService directly instead of refreshToken()
+      // This avoids circular calls between services
+      return await _authService.refreshToken();
+    } catch (e) {
+      _logger.e('Force token refresh error: $e');
+      return false;
+    }
   }
 
   Future<bool> logout() async {

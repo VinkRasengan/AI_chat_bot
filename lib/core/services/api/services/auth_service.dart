@@ -21,6 +21,10 @@ class AuthService {
   int _refreshAttempts = 0;
   static const int _maxRefreshAttempts = 2;
   DateTime? _lastRefreshAttempt;
+
+  // Track current refresh attempt to prevent multiple simultaneous refreshes
+  bool _isRefreshing = false;
+  DateTime? _lastRefreshTime;
   
   Future<void> initialize(String? apiKey) async {
     try {
@@ -40,14 +44,21 @@ class AuthService {
     try {
       _logger.i('Attempting sign-up for email: $email');
       
+      // Prepare request body with all required parameters
       final requestBody = {
         'email': email,
         'password': password,
         'verification_callback_url': ApiConstants.verificationCallbackUrl,
       };
+      
+      // Add name if provided
+      if (name != null && name.isNotEmpty) {
+        requestBody['name'] = name;
+      }
 
       final url = Uri.parse('$_authApiUrl${ApiConstants.authPasswordSignUp}');
       
+      // Include all required headers
       final headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -119,6 +130,7 @@ class AuthService {
     try {
       _logger.i('Attempting sign-in for email: $email');
 
+      // Prepare request body according to API specification
       final requestBody = {
         'email': email,
         'password': password,
@@ -126,15 +138,15 @@ class AuthService {
 
       final url = Uri.parse('$_authApiUrl${ApiConstants.authPasswordSignIn}');
       
-      // Use direct headers for authentication
+      // Include all required headers as specified in the API documentation
       final headers = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
         'X-Stack-Access-Type': 'client',
         'X-Stack-Project-Id': _stackProjectId ?? ApiConstants.stackProjectId,
         'X-Stack-Publishable-Client-Key': _stackPublishableClientKey ?? ApiConstants.stackPublishableClientKey,
       };
 
+      // Only add API key if available (not in the API documentation but might be needed)
       if (_apiKey != null && _apiKey!.isNotEmpty) {
         headers['X-API-KEY'] = _apiKey!;
       }
@@ -156,19 +168,22 @@ class AuthService {
       }
 
       if (response.statusCode == 200) {
-        if (data['access_token'] != null) {
+        if (data.containsKey('access_token') && 
+            data.containsKey('refresh_token') && 
+            data.containsKey('user_id')) {
+          
+          // Save authentication tokens
           await _saveAuthToken(
             data['access_token'],
             data['refresh_token'],
             data['user_id'],
           );
-          _logger.i('Authentication tokens saved successfully');
           
-          // Log token info for debugging
-          _logTokenInfo(data['access_token']);
+          _logger.i('Authentication tokens saved successfully');
         } else {
-          _logger.w('No access token in successful response');
+          _logger.w('Response missing required fields: ${data.keys}');
         }
+        
         return data;
       } else {
         final errorMessage = data['message'] ?? data['error'] ?? 'Unknown error during sign in';
@@ -182,9 +197,38 @@ class AuthService {
   
   Future<bool> refreshToken() async {
     try {
-      if (_refreshToken == null) {
+      // Prevent multiple simultaneous refresh attempts
+      if (_isRefreshing) {
+        _logger.i('Token refresh already in progress, waiting...');
+        // If a refresh just happened (<5 seconds ago), reuse that result instead of waiting
+        if (_lastRefreshTime != null && 
+            DateTime.now().difference(_lastRefreshTime!).inSeconds < 5) {
+          _logger.i('Using recent refresh result');
+          return _accessToken != null;
+        }
+        
+        // Wait for the current refresh to complete (with timeout)
+        int attempts = 0;
+        while (_isRefreshing && attempts < 10) {
+          await Future.delayed(const Duration(milliseconds: 100));
+          attempts++;
+        }
+        return _accessToken != null;
+      }
+      
+      _isRefreshing = true;
+      
+      // Check if we have a refresh token before attempting to refresh
+      if (_refreshToken == null || _refreshToken!.isEmpty) {
         _logger.w('Cannot refresh token: No refresh token available');
-        return false;
+        // Load from preferences in case it's there but wasn't loaded into memory
+        final prefs = await SharedPreferences.getInstance();
+        _refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+        
+        if (_refreshToken == null || _refreshToken!.isEmpty) {
+          _isRefreshing = false;
+          return false;
+        }
       }
 
       // Circuit breaker - prevent too many refresh attempts in a short time
@@ -193,6 +237,7 @@ class AuthService {
           now.difference(_lastRefreshAttempt!).inSeconds < 10 &&
           _refreshAttempts >= _maxRefreshAttempts) {
         _logger.w('Too many token refresh attempts. Switching to Gemini API fallback mode.');
+        _isRefreshing = false;
         return false;
       }
       
@@ -245,14 +290,18 @@ class AuthService {
             
             // Reset refresh attempts counter on success
             _refreshAttempts = 0;
+            _lastRefreshTime = DateTime.now();
+            _isRefreshing = false;
             
             return true;
           } else {
             _logger.w('No access token in refresh response');
+            _isRefreshing = false;
             return false;
           }
         } catch (e) {
           _logger.e('Error parsing refresh token response: $e');
+          _isRefreshing = false;
           return false;
         }
       } else {
@@ -265,14 +314,17 @@ class AuthService {
             await clearAuthToken();
           }
 
+          _isRefreshing = false;
           return false;
         } catch (e) {
           _logger.e('Error processing token refresh error: $e');
+          _isRefreshing = false;
           return false;
         }
       }
     } catch (e) {
       _logger.e('Token refresh error: $e');
+      _isRefreshing = false;
       return false;
     }
   }
@@ -286,8 +338,21 @@ class AuthService {
 
       _logger.i('Attempting to logout user');
 
-      final headers = getAuthHeaders(includeAuth: true);
-      if (_refreshToken != null) {
+      // Prepare headers exactly as specified in API documentation
+      final headers = {
+        'Content-Type': 'application/json',
+        'X-Stack-Access-Type': 'client',
+        'X-Stack-Project-Id': _stackProjectId ?? ApiConstants.stackProjectId,
+        'X-Stack-Publishable-Client-Key': _stackPublishableClientKey ?? ApiConstants.stackPublishableClientKey,
+      };
+      
+      // Add Authorization header if we have a token
+      if (_accessToken != null && _accessToken!.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $_accessToken';
+      }
+      
+      // Add refresh token if available
+      if (_refreshToken != null && _refreshToken!.isNotEmpty) {
         headers['X-Stack-Refresh-Token'] = _refreshToken!;
       }
 
@@ -299,13 +364,45 @@ class AuthService {
 
       _logger.i('Logout response status code: ${response.statusCode}');
 
-      if (response.statusCode == 200 || response.statusCode == 204) {
+      if (response.statusCode == 200) {
+        try {
+          // According to API docs, the endpoint returns new tokens on success
+          // Parse them in case they're needed for post-logout operations
+          final data = jsonDecode(response.body);
+          
+          if (data.containsKey('access_token')) {
+            _logger.i('Received new tokens after logout');
+            // We don't save these tokens since we're logging out
+          }
+          
+          // Clear local tokens
+          await clearAuthToken();
+          _logger.i('Logout successful, tokens cleared');
+          return true;
+        } catch (e) {
+          _logger.w('Error parsing logout response: $e');
+          await clearAuthToken();
+          return true; // Still consider logout successful
+        }
+      } else if (response.statusCode == 204) {
+        // No content response is also considered successful
         await clearAuthToken();
-        _logger.i('Logout successful, tokens cleared');
+        _logger.i('Logout successful (204 No Content), tokens cleared');
         return true;
       } else {
-        // Clear tokens anyway, even if the server request failed
+        _logger.e('Logout failed with status code: ${response.statusCode}');
+        
+        // Try to parse error response
+        try {
+          final errorData = jsonDecode(response.body);
+          _logger.e('Logout error response: $errorData');
+        } catch (e) {
+          // Ignore JSON parsing errors
+        }
+        
+        // Clear tokens locally even if the server request failed
         await clearAuthToken();
+        _logger.w('Cleared local tokens despite server logout failure');
         return false;
       }
     } catch (e) {

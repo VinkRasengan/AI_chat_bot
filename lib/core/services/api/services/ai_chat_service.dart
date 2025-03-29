@@ -56,8 +56,8 @@ class AiChatService {
       
       // Prepare query parameters according to the API documentation
       final queryParams = {
-        'limit': '100',
         'assistantModel': 'dify', // Required parameter per API docs
+        'limit': '100',
       };
 
       // Add assistantId if we have a selected model
@@ -73,7 +73,7 @@ class AiChatService {
 
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _errorCount > 0);
-      // Add x-jarvis-guid header which might be required by the API
+      // Add x-jarvis-guid header which is specified in the API doc
       headers['x-jarvis-guid'] = '';
       
       final response = await http.get(
@@ -100,6 +100,15 @@ class AiChatService {
                 ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
                 : DateTime.now(),
           ));
+        }
+        
+        // Store pagination info
+        final hasCursor = data['cursor'] != null && data['cursor'].toString().isNotEmpty;
+        final hasMore = data['has_more'] == true;
+        
+        if (hasCursor && hasMore) {
+          _logger.i('Pagination available with cursor: ${data['cursor']}');
+          // Store cursor for potential pagination implementation
         }
 
         return conversations;
@@ -163,8 +172,8 @@ class AiChatService {
       
       // Prepare query parameters according to the API documentation
       final queryParams = {
-        'limit': '100',
         'assistantModel': 'dify', // Required parameter per API docs
+        'limit': '100',
       };
 
       // Add assistantId if we have a selected model
@@ -172,14 +181,13 @@ class AiChatService {
         queryParams['assistantId'] = _selectedModel!;
       }
 
-      // Build the URI with the conversationId path parameter and query parameters
-      // Make sure there are no double slashes in the path by using proper path joining
+      // Build the URI with query parameters
       final uri = Uri.parse('$_jarvisApiUrl${ApiConstants.conversationMessages(conversationId)}')
           .replace(queryParameters: queryParams);
       
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _hasAuthError);
-      // Add x-jarvis-guid header which might be required by the API
+      // Add required x-jarvis-guid header per API documentation
       headers['x-jarvis-guid'] = '';
       
       final response = await http.get(
@@ -201,14 +209,20 @@ class AiChatService {
           final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
           
           messages.add(Message(
-            id: item['id'] ?? '',
+            id: item['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
             text: content,
             isUser: isUserMessage,
             timestamp: item['createdAt'] != null
                 ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
                 : DateTime.now(),
-            metadata: item['metadata'],
+            metadata: item,
           ));
+        }
+        
+        // Store pagination info if needed for future implementation
+        if (data['cursor'] != null && data['has_more'] == true) {
+          _logger.i('Pagination available with cursor: ${data['cursor']}');
+          // Could implement pagination in the future
         }
         
         return messages;
@@ -279,7 +293,11 @@ class AiChatService {
     try {
       _logger.i('Sending message to conversation: $conversationId');
       
-      // First, get the existing conversation to build the history
+      // Get the selected model details
+      final modelId = await getSelectedModel() ?? ApiConstants.defaultModel;
+      final modelName = ApiConstants.modelNames[modelId] ?? 'AI Assistant';
+      
+      // First, get the existing conversation history
       List<Message> existingMessages = [];
       try {
         existingMessages = await getConversationHistory(conversationId);
@@ -288,59 +306,55 @@ class AiChatService {
         _logger.w('Error retrieving message history, proceeding with empty history: $e');
       }
       
-      // Get the assistant details (using default if none specified)
-      final assistantId = _selectedModel ?? ApiConstants.defaultModel;
-      final assistantName = ApiConstants.modelNames[assistantId] ?? 'AI Assistant';
-      
-      // Format the message history according to the API requirements
-      final messageHistory = existingMessages.map((msg) => {
+      // Format messages according to the API requirements
+      final formattedMessages = existingMessages.map((msg) => {
         'role': msg.isUser ? 'user' : 'model',
         'content': msg.text,
         'files': [],
         'assistant': {
-          'id': assistantId,
+          'id': modelId,
           'model': 'dify',
-          'name': assistantName
+          'name': modelName
         }
       }).toList();
       
-      // Add the new user message to the history
-      messageHistory.add({
+      // Add current message to list
+      formattedMessages.add({
         'role': 'user',
         'content': text,
         'files': [],
         'assistant': {
-          'id': assistantId,
+          'id': modelId,
           'model': 'dify',
-          'name': assistantName
+          'name': modelName
         }
       });
       
-      // Build the request body according to the API documentation
+      // Construct the request body according to API specification
       final requestBody = {
         'content': text,
         'files': [],
         'metadata': {
           'conversation': {
             'id': conversationId,
-            'messages': messageHistory
+            'messages': formattedMessages
           }
         },
         'assistant': {
-          'id': assistantId,
+          'id': modelId,
           'model': 'dify',
-          'name': assistantName
+          'name': modelName
         }
       };
       
       // Use the exact endpoint from constants
-      final uri = Uri.parse('$_jarvisApiUrl${ApiConstants.messages}');
+      final uri = Uri.parse('${_jarvisApiUrl}${ApiConstants.messages}');
       
-      _logger.d('Sending message request: ${jsonEncode(requestBody)}');
+      _logger.d('Sending message with request body structure: ${jsonEncode(requestBody)}');
       
       // Get headers with token refresh if needed
       final headers = await _getHeaders(forceRefresh: _hasAuthError);
-      // Add x-jarvis-guid header which might be required by the API
+      // Add x-jarvis-guid header as specified in API documentation
       headers['x-jarvis-guid'] = '';
       
       final response = await http.post(
@@ -349,8 +363,6 @@ class AiChatService {
         body: jsonEncode(requestBody),
       );
       
-      _logger.d('Message response code: ${response.statusCode}');
-      
       if (response.statusCode == 200) {
         // Reset auth error flag on success
         _hasAuthError = false;
@@ -358,12 +370,18 @@ class AiChatService {
         final data = jsonDecode(response.body);
         
         _logger.i('Message sent successfully, received response: ${data['message']}');
+        _logger.d('Remaining usage: ${data['remainingUsage']}');
         
-        // Create and return a user message object to represent the sent message
+        // Return a user message object representing the sent message
         return Message(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
           text: text,
           isUser: true,
           timestamp: DateTime.now(),
+          metadata: {
+            'conversationId': data['conversationId'],
+            'remainingUsage': data['remainingUsage']
+          },
         );
       } else if (response.statusCode == 401 || response.statusCode == 403) {
         _hasAuthError = true;
@@ -371,7 +389,6 @@ class AiChatService {
         // Try refreshing the token and retry once
         await _authService.refreshToken();
         
-        // Only retry once to avoid infinite loops
         _logger.i('Retrying send message with fresh token');
         
         final retryHeaders = await _getHeaders(forceRefresh: true);
@@ -387,28 +404,20 @@ class AiChatService {
           _logger.i('Retry successful, received response: ${data['message']}');
           
           return Message(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
             text: text,
             isUser: true,
             timestamp: DateTime.now(),
           );
         }
         
-        // If retry failed, throw an error
         throw 'Authentication failed after token refresh';
       } else {
-        _logger.e('Error sending message: ${response.body}');
+        _logger.e('Error sending message: ${response.statusCode} ${response.body}');
         throw 'Failed to send message: ${response.statusCode} ${response.reasonPhrase}';
       }
     } catch (e) {
       _logger.e('Error sending message: $e');
-      
-      // If this is an authentication issue, mark for future requests
-      if (e.toString().contains('401') || 
-          e.toString().contains('403') || 
-          e.toString().contains('Authentication failed')) {
-        _hasAuthError = true;
-      }
-      
       throw 'Error: $e';
     }
   }

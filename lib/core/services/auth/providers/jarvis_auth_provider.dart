@@ -52,7 +52,16 @@ class JarvisAuthProvider implements AuthProviderInterface {
 
     // Check if we have a valid token
     if (!_apiService.isAuthenticated()) {
-      _logger.w('No access token found, attempting to refresh token');
+      _logger.w('No access token found, checking if refresh token is available');
+      
+      // Check if refresh token is available before attempting refresh
+      final prefs = await SharedPreferences.getInstance();
+      final refreshTokenString = prefs.getString(ApiConstants.refreshTokenKey);
+      
+      if (refreshTokenString == null || refreshTokenString.isEmpty) {
+        _logger.w('No refresh token available, user is not logged in');
+        return false;
+      }
 
       // Try refreshing token if we have a refresh token
       final refreshed = await refreshToken();
@@ -73,14 +82,6 @@ class JarvisAuthProvider implements AuthProviderInterface {
         return _currentUser != null;
       } catch (e) {
         _logger.e('Error refreshing user data: $e');
-
-        // Try refreshing token as a fallback
-        final refreshed = await refreshToken();
-        if (refreshed) {
-          await _refreshUserData();
-          return _currentUser != null;
-        }
-
         return false;
       }
     }
@@ -188,9 +189,19 @@ class JarvisAuthProvider implements AuthProviderInterface {
 
     try {
       _logger.i('Refreshing auth token from provider');
+      
+      // Check if refresh token is available before attempting to refresh
+      final prefs = await SharedPreferences.getInstance();
+      final refreshToken = prefs.getString(ApiConstants.refreshTokenKey);
+      
+      if (refreshToken == null || refreshToken.isEmpty) {
+        _logger.w('Cannot refresh token: No refresh token available');
+        return false;
+      }
 
-      // Call API service to refresh token
-      final result = await _apiService.refreshToken();
+      // Call API service to refresh token - but only once
+      // This avoids the circular API calls
+      final result = await _apiService.forceTokenRefresh();
 
       if (result) {
         _logger.i('Token refresh succeeded, updating user data');
@@ -725,7 +736,7 @@ class JarvisAuthProvider implements AuthProviderInterface {
         await _saveUserToPrefs(user);
         _logger.i('User data refreshed successfully: ${user.email}');
       } else {
-        _logger.w('Failed to get user data from API');
+        _logger.w('Failed tfr data from API');
 
         // Try to load from preferences as fallback
         _currentUser = await _loadUserFromPrefs();

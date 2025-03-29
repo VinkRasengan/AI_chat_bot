@@ -40,7 +40,7 @@ class JarvisChatService {
   }
   
   /// Get conversations/chat sessions for the current user
-  Future<List<ChatSession>> getUserChatSessions() async {
+  Future<List<ChatSession>> getUserChatSessions({int retryCount = 0}) async {
     try {
       _logger.i('Getting user chat sessions');
       
@@ -68,15 +68,36 @@ class JarvisChatService {
         return [];
       }
       
+      // Prepare query parameters according to the API documentation
+      final queryParams = {
+        'assistantModel': 'dify', // Required parameter per API docs
+        'limit': '100',
+      };
+
+      // Add assistantId if we have a selected model
+      if (selectedModel != null && selectedModel.isNotEmpty) {
+        queryParams['assistantId'] = selectedModel;
+      }
+
+      // Build the URI with query parameters
+      final uri = Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}')
+          .replace(queryParameters: queryParams);
+      
+      // Get auth headers
+      final headers = _authService.getHeaders();
+      // Add x-jarvis-guid header which is specified in the API doc
+      headers['x-jarvis-guid'] = '';
+      
       // Make API request
       final response = await http.get(
-        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}'),
-        headers: _authService.getHeaders(),
+        uri,
+        headers: headers,
       );
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         
+        // Parse response according to documented structure
         if (data['items'] != null) {
           _chatSessions = (data['items'] as List)
               .map((item) => ChatSession(
@@ -89,17 +110,32 @@ class JarvisChatService {
               .toList();
           
           _lastChatSessionsRefresh = DateTime.now();
+          
+          // Save cursor for potential pagination if needed
+          if (data['cursor'] != null && data['has_more'] == true) {
+            _logger.i('Pagination available with cursor: ${data['cursor']}');
+            // Store cursor for potential pagination implementation
+          }
+          
           return _chatSessions;
         }
         
         return [];
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // Try to refresh token and retry
+        // Limit the number of retries to avoid infinite recursion
+        if (retryCount >= 2) {
+          _logger.w('Max retry count reached for token refresh, returning empty list');
+          return [];
+        }
+        
+        // Try to refresh token and retry with non-recursive approach
         final refreshed = await _authService.refreshToken();
         if (refreshed) {
-          return getUserChatSessions();
+          // Increment retry count and try again, but don't call this method recursively
+          return await getUserChatSessions(retryCount: retryCount + 1);
         } else {
-          throw 'Authentication failed';
+          _logger.w('Token refresh failed, returning empty list');
+          return [];
         }
       } else {
         _logger.e('Error getting chat sessions: ${response.statusCode} ${response.body}');
@@ -107,12 +143,12 @@ class JarvisChatService {
       }
     } catch (e) {
       _logger.e('Error getting user chat sessions: $e');
-      rethrow;
+      return [];
     }
   }
   
   /// Create a new chat session
-  Future<ChatSession> createChatSession(String title) async {
+  Future<ChatSession> createChatSession(String title, {int retryCount = 0}) async {
     try {
       _logger.i('Creating new chat session: $title');
       
@@ -168,10 +204,17 @@ class JarvisChatService {
         
         return chatSession;
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // Try to refresh token and retry
+        // Limit the number of retries
+        if (retryCount >= 2) {
+          _logger.w('Max retry count reached for token refresh');
+          throw 'Authentication failed after multiple attempts';
+        }
+        
+        // Try to refresh token and retry with non-recursive approach
         final refreshed = await _authService.refreshToken();
         if (refreshed) {
-          return createChatSession(title);
+          // Increment retry count and try again
+          return await createChatSession(title, retryCount: retryCount + 1);
         } else {
           throw 'Authentication failed';
         }
@@ -214,7 +257,7 @@ class JarvisChatService {
   }
   
   /// Get messages for a conversation
-  Future<List<Message>> getMessages(String conversationId) async {
+  Future<List<Message>> getMessages(String conversationId, {int retryCount = 0}) async {
     try {
       _logger.i('Getting messages for conversation: $conversationId');
       
@@ -223,42 +266,78 @@ class JarvisChatService {
         return [];
       }
       
+      // Prepare query parameters according to the API documentation
+      final queryParams = {
+        'assistantModel': 'dify', // Required parameter per API docs
+        'limit': '100',
+      };
+
+      // Add assistantId if we have a selected model
+      final selectedModel = await getSelectedModel();
+      if (selectedModel != null && selectedModel.isNotEmpty) {
+        queryParams['assistantId'] = selectedModel;
+      }
+
+      // Build the URI with query parameters
+      final uri = Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversationMessages(conversationId)}')
+          .replace(queryParameters: queryParams);
+      
+      // Get headers and add required x-jarvis-guid header
+      final headers = _authService.getHeaders();
+      headers['x-jarvis-guid'] = '';
+      
       // Make API request
       final response = await http.get(
-        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversationMessages(conversationId)}'),
-        headers: _authService.getHeaders(),
+        uri,
+        headers: headers,
       );
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         List<Message> messages = [];
         
-        if (data['items'] != null) {
-          for (var item in data['items']) {
-            // User message has a 'query' field, bot message has an 'answer' field
-            final bool isUserMessage = item.containsKey('query');
-            final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
-            
-            messages.add(Message(
-              id: item['id'] ?? '',
-              text: content,
-              isUser: isUserMessage,
-              timestamp: item['createdAt'] != null
-                  ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
-                  : DateTime.now(),
-              metadata: item['metadata'],
-            ));
-          }
+        // Parse items array from the response
+        for (var item in data['items'] ?? []) {
+          // User message has a 'query' field, bot message has an 'answer' field
+          final bool isUserMessage = item.containsKey('query');
+          final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
+          
+          messages.add(Message(
+            id: item['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+            text: content,
+            isUser: isUserMessage,
+            timestamp: item['createdAt'] != null
+                ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
+                : DateTime.now(),
+            metadata: item,
+          ));
+        }
+        
+        // Store pagination info if available for potential future use
+        final hasCursor = data['cursor'] != null && data['cursor'].toString().isNotEmpty;
+        final hasMore = data['has_more'] == true;
+        
+        if (hasCursor && hasMore) {
+          _logger.i('Pagination available with cursor: ${data['cursor']}');
+          // Store cursor for potential pagination implementation
         }
         
         return messages;
       } else if (response.statusCode == 401 || response.statusCode == 403) {
-        // Try to refresh token and retry
+        // Limit the number of retries
+        if (retryCount >= 2) {
+          _logger.w('Max retry count reached for token refresh, returning empty list');
+          return [];
+        }
+        
+        // Try to refresh token and retry with non-recursive approach
         final refreshed = await _authService.refreshToken();
         if (refreshed) {
-          return getMessages(conversationId);
+          // Increment retry count and try again, but don't call recursively
+          return await getMessages(conversationId, retryCount: retryCount + 1);
         } else {
-          throw 'Authentication failed';
+          _logger.w('Token refresh failed, returning empty message list');
+          return [];
         }
       } else {
         _logger.e('Error getting messages: ${response.statusCode} ${response.body}');
@@ -271,7 +350,7 @@ class JarvisChatService {
   }
   
   /// Send a message in a conversation
-  Future<void> sendMessage(String conversationId, String message) async {
+  Future<Map<String, dynamic>> sendMessage(String conversationId, String message) async {
     try {
       _logger.i('Sending message to conversation: $conversationId');
       
@@ -279,21 +358,77 @@ class JarvisChatService {
       if (conversationId.startsWith('local_')) {
         throw 'Cannot send messages to local sessions via API';
       }
+
+      // Get selected model
+      final selectedModel = await getSelectedModel() ?? ApiConstants.defaultModel;
+      final modelName = ApiConstants.modelNames[selectedModel] ?? 'AI Assistant';
       
-      // Make API request
+      // Get conversation history for proper formatting
+      final messages = await getMessages(conversationId);
+      
+      // Format messages according to API requirements
+      final formattedMessages = messages.map((msg) => {
+        'role': msg.isUser ? 'user' : 'model',
+        'content': msg.text,
+        'files': [],
+        'assistant': {
+          'id': selectedModel,
+          'model': 'dify',
+          'name': modelName
+        }
+      }).toList();
+      
+      // Add current message to list
+      formattedMessages.add({
+        'role': 'user',
+        'content': message,
+        'files': [],
+        'assistant': {
+          'id': selectedModel,
+          'model': 'dify',
+          'name': modelName
+        }
+      });
+      
+      // Get headers and add x-jarvis-guid header
+      final headers = _authService.getHeaders();
+      headers['x-jarvis-guid'] = '';
+      
+      // Make API request with proper structure per API documentation
       final response = await http.post(
         Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.messages}'),
-        headers: _authService.getHeaders(),
+        headers: headers,
         body: jsonEncode({
-          'conversation_id': conversationId,
           'content': message,
-          'model': _selectedModel ?? ApiConstants.defaultModel,
+          'files': [],
+          'metadata': {
+            'conversation': {
+              'id': conversationId,
+              'messages': formattedMessages
+            }
+          },
+          'assistant': {
+            'id': selectedModel,
+            'model': 'dify',
+            'name': modelName
+          }
         }),
       );
       
-      if (response.statusCode != 200 && response.statusCode != 201) {
+      if (response.statusCode == 200) {
+        // Parse response
+        final data = jsonDecode(response.body);
+        _logger.i('Message sent successfully. Response: ${data['message']}');
+        _logger.d('Conversation ID: ${data['conversationId']}, Remaining Usage: ${data['remainingUsage']}');
+        
+        return {
+          'message': data['message'],
+          'conversationId': data['conversationId'],
+          'remainingUsage': data['remainingUsage']
+        };
+      } else {
         _logger.e('Error sending message: ${response.statusCode} ${response.body}');
-        throw 'Failed to send message';
+        throw 'Failed to send message: ${response.statusCode}';
       }
     } catch (e) {
       _logger.e('Error sending message: $e');
