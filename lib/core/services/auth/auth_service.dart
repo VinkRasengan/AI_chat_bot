@@ -685,7 +685,7 @@ class AuthService {
   
   /// Generate a random state for OAuth security
   String _generateRandomState() {
-    const timestamp = 123456789; // Must use literal value to allow const
+    const timestamp = 123456789; // Fix: Using const for literal value
     final random = timestamp.toString() + (timestamp % 10000).toString();
     return base64Url.encode(utf8.encode(random)).substring(0, 16);
   }

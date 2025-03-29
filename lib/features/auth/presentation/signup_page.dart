@@ -220,7 +220,7 @@ class _SignupPageState extends State<SignupPage> {
                         const SizedBox(height: 8),
                         PasswordRequirementWidget(
                           password: _passwordController.text,
-                          showTitle: true,
+                          isVisible: true,
                         ),
                         const SizedBox(height: 16),
                         PasswordField(

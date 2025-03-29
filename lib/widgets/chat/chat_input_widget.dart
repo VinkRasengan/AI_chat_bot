@@ -22,14 +22,13 @@ class ChatInputWidget extends StatelessWidget {
           BoxShadow(
             offset: const Offset(0, -2),
             blurRadius: 4,
-            color: Colors.black.withAlpha(26), // Fixed withOpacity
+            color: Colors.black.withAlpha(26),
           ),
         ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Text field
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -44,34 +43,41 @@ class ChatInputWidget extends StatelessWidget {
                 decoration: InputDecoration(
                   hintText: 'Nhập tin nhắn...',
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 1.5),
+                    borderRadius: BorderRadius.circular(20),
                   ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   isDense: true,
                   hintStyle: TextStyle(
                     color: Colors.grey.shade500,
+                    fontStyle: FontStyle.italic,
                   ),
                 ),
-                onSubmitted: isLoading ? null : (text) => onSend(text),
+                onSubmitted: isLoading ? null : (text) => _handleSend(text),
                 enabled: !isLoading,
               ),
             ),
           ),
-          
-          // Send button
           Material(
             color: Colors.transparent,
             child: Padding(
               padding: const EdgeInsets.only(left: 8.0),
               child: InkWell(
                 borderRadius: BorderRadius.circular(25),
-                onTap: isLoading ? null : () => onSend(controller.text),
+                onTap: isLoading ? null : () => _handleSend(controller.text),
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     color: Theme.of(context).primaryColor,
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(26),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
                   ),
                   child: isLoading
                       ? const SizedBox(
@@ -94,5 +100,12 @@ class ChatInputWidget extends StatelessWidget {
         ],
       ),
     );
+  }
+  
+  void _handleSend(String text) {
+    if (text.trim().isNotEmpty) {
+      onSend(text);
+      controller.clear();
+    }
   }
 }

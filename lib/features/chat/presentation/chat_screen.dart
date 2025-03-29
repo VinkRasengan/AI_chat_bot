@@ -23,7 +23,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final Logger _logger = Logger();
   final ScrollController _scrollController = ScrollController();
-  final TextEditingController _inputController = TextEditingController(); // Add text controller for input
+  final TextEditingController _inputController = TextEditingController();
 
   bool _isLoading = true;
   bool _isSending = false;
@@ -34,14 +34,10 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _currentTitle = widget.chatSession.title;
-
-    // Load messages
     _loadMessages();
 
-    // Check if we already have initial messages from the session
     if (widget.chatSession.messages != null && widget.chatSession.messages!.isNotEmpty) {
       setState(() {
-        // Use the messages from the session without filtering out the welcome message
         _messages = widget.chatSession.messages!;
         _isLoading = false;
       });
@@ -53,22 +49,16 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _isLoading = true;
       });
-
-      // Get messages from the service
       final messages = await widget.chatService.getMessages(widget.chatSession.id);
-
       if (mounted) {
         setState(() {
-          // Set messages without filtering out welcome message
           _messages = messages;
           _isLoading = false;
         });
-
         _scrollToBottom();
       }
     } catch (e) {
       _logger.e('Error loading messages: $e');
-
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -79,20 +69,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
-
+    
+    _inputController.clear();
+    
     try {
       setState(() {
         _isSending = true;
-
-        // Add the user message immediately for better UX
         _messages.add(Message(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           text: text,
           isUser: true,
           timestamp: DateTime.now(),
         ));
-
-        // Show AI is typing indicator
         _messages.add(Message(
           id: 'typing',
           text: '',
@@ -101,18 +89,12 @@ class _ChatScreenState extends State<ChatScreen> {
           timestamp: DateTime.now(),
         ));
       });
-
       _scrollToBottom();
 
-      // Send the message to the service
       final response = await widget.chatService.sendMessage(widget.chatSession.id, text);
-
       if (mounted) {
         setState(() {
-          // Remove typing indicator
           _messages.removeWhere((message) => message.id == 'typing');
-
-          // Add AI response
           if (response['success'] == true) {
             _messages.add(Message(
               id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -120,13 +102,10 @@ class _ChatScreenState extends State<ChatScreen> {
               isUser: false,
               timestamp: DateTime.now(),
             ));
-
-            // Update title if it changed
             if (response['title'] != null && _currentTitle != response['title']) {
               _currentTitle = response['title'];
             }
           } else {
-            // Add error message
             _messages.add(Message(
               id: DateTime.now().millisecondsSinceEpoch.toString(),
               text: 'Error: ${response['error'] ?? 'Failed to get response'}',
@@ -134,28 +113,21 @@ class _ChatScreenState extends State<ChatScreen> {
               timestamp: DateTime.now(),
             ));
           }
-
           _isSending = false;
         });
-
         _scrollToBottom();
       }
     } catch (e) {
       _logger.e('Error sending message: $e');
-
       if (mounted) {
         setState(() {
-          // Remove typing indicator
           _messages.removeWhere((message) => message.id == 'typing');
-
-          // Add error message
           _messages.add(Message(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
             text: 'Error: $e',
             isUser: false,
             timestamp: DateTime.now(),
           ));
-
           _isSending = false;
         });
       }
@@ -163,7 +135,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _scrollToBottom() {
-    // Scroll to bottom after a slight delay to ensure the list has been built
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -200,15 +171,18 @@ class _ChatScreenState extends State<ChatScreen> {
                         padding: const EdgeInsets.all(16),
                         itemBuilder: (context, index) {
                           final message = _messages[index];
+                          
+                          // If you want to style system messages differently but still show them:
                           return MessageBubbleWidget(
                             message: message,
+                            isLastMessage: index == _messages.length - 1,
                           );
                         },
                       ),
           ),
           SafeArea(
             child: ChatInputWidget(
-              controller: _inputController, // Add the required controller parameter
+              controller: _inputController,
               onSend: _sendMessage,
               isLoading: _isSending,
             ),
@@ -221,7 +195,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
-    _inputController.dispose(); // Dispose the text controller
+    _inputController.dispose();
     super.dispose();
   }
 }

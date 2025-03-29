@@ -69,3 +69,18 @@ class Message {
     return 'Message(text: $text, isUser: $isUser, timestamp: $timestamp, isTyping: $isTyping)';
   }
 }
+
+// Helper extension to check if a message is a system message
+extension MessageExtension on Message {
+  bool get isSystemMessage {
+    return metadata != null && metadata!['isSystemMessage'] == true;
+  }
+  
+  bool get isInitializationMessage {
+    return isUser && text == 'start_conversation';
+  }
+  
+  bool get isDuplicateWelcomeMessage {
+    return isUser && text == 'Hello, how can I help you today?';
+  }
+}

@@ -15,46 +15,65 @@ class MessageBubbleWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final isTyping = message.isTyping;
     final isWelcomeMessage = message.id == 'welcome';
+    final isStartConversation = message.isUser && message.text == 'start_conversation';
+    
+    // If it's an initialization message, show a different UI component
+    if (isStartConversation) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Text(
+              'Conversation started',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     
     return Row(
       mainAxisAlignment: message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // AI Avatar (only show for AI messages)
         if (!message.isUser) _buildAvatar(context, isWelcomeMessage),
-        
-        // Message Content
         Flexible(
           child: Container(
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.75,
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            margin: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
-              // Use special styling for welcome message
               color: message.isUser 
-                  ? Colors.blue.withValues(red: 0, green: 122, blue: 255, alpha: 0.1)
-                  : (isTyping 
-                      ? Colors.grey.shade200 
-                      : (isWelcomeMessage 
-                          ? Colors.blue.shade50  // Light blue for welcome message
-                          : Colors.white)),
-              borderRadius: BorderRadius.circular(16),
+                  ? Colors.blue[100] 
+                  : (isTyping ? Colors.grey[200] : (isWelcomeMessage ? Colors.blue[50] : Colors.grey[50])),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(20),
+                topRight: const Radius.circular(20),
+                bottomLeft: message.isUser ? const Radius.circular(20) : const Radius.circular(5),
+                bottomRight: message.isUser ? const Radius.circular(5) : const Radius.circular(20),
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withAlpha(13), // Fix: Using withAlpha instead of withOpacity
                   blurRadius: 5,
                   offset: const Offset(0, 2),
                 )
               ],
             ),
-            child: isTyping 
-                ? _buildTypingIndicator() 
-                : _buildMessageContent(context),
+            child: isTyping ? _buildTypingIndicator() : _buildMessageContent(context),
           ),
         ),
-        
-        // User Avatar (only show for user messages)
         if (message.isUser) _buildUserAvatar(context),
       ],
     );
@@ -93,7 +112,7 @@ class MessageBubbleWidget extends StatelessWidget {
   Widget _buildTypingIndicator() {
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: const [
+      children: const [  // Fix: Using const constructor
         AnimatedPulse(delay: 100),
         AnimatedPulse(delay: 300),
         AnimatedPulse(delay: 500),
@@ -103,13 +122,10 @@ class MessageBubbleWidget extends StatelessWidget {
   
   Widget _buildMessageContent(BuildContext context) {
     final isWelcomeMessage = message.id == 'welcome';
-    
     return Text(
       message.text,
       style: TextStyle(
-        color: message.isUser 
-            ? Colors.white 
-            : (isWelcomeMessage ? Colors.black87 : Colors.black87),
+        color: message.isUser ? Colors.black87 : (isWelcomeMessage ? Colors.black87 : Colors.black87),
         fontSize: 15,
         fontWeight: isWelcomeMessage ? FontWeight.w500 : FontWeight.normal,
       ),
@@ -117,7 +133,7 @@ class MessageBubbleWidget extends StatelessWidget {
   }
 }
 
-// Animation for typing indicator
+// Animation cho typing indicator
 class AnimatedPulse extends StatefulWidget {
   final int delay;
   
@@ -140,13 +156,9 @@ class _AnimatedPulseState extends State<AnimatedPulse> with SingleTickerProvider
     );
     
     _animation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeInOut,
-      ),
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
     
-    // Add delay before starting animation
     Future.delayed(Duration(milliseconds: widget.delay), () {
       if (mounted) {
         _controller.repeat(reverse: true);
@@ -159,15 +171,12 @@ class _AnimatedPulseState extends State<AnimatedPulse> with SingleTickerProvider
     return AnimatedBuilder(
       animation: _animation,
       builder: (context, child) {
-        // Calculate the alpha value as a double between 128.0 and 256.0
-        final double alphaValue = 128.0 + (_animation.value * 128.0);
-        
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 2),
           height: 8,
           width: 8,
           decoration: BoxDecoration(
-            color: Colors.grey.withValues(red: 128, green: 128, blue: 128, alpha: 0.05),
+            color: Colors.grey.withAlpha(((0.6 * _animation.value + 0.2) * 255).toInt()), // Fix: Using withAlpha
             shape: BoxShape.circle,
           ),
         );

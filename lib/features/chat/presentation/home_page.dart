@@ -47,16 +47,9 @@ class _HomePageState extends State<HomePage> {
     
     try {
       final isLoggedIn = await _authService.isLoggedIn();
-      
       if (!isLoggedIn) {
-        _logger.w('User not logged in, trying to refresh authentication state');
         final refreshed = await _authService.forceAuthStateUpdate();
-        
-        if (!refreshed) {
-          _logger.w('Authentication refresh failed, navigating to login');
-          
-          if (!mounted) return;
-          
+        if (!refreshed && mounted) {
           Navigator.of(context).pushReplacementNamed('/login');
           return;
         }
@@ -65,17 +58,12 @@ class _HomePageState extends State<HomePage> {
       await _loadUserInfo();
       await _loadChatSessions();
       await _loadSelectedModel();
-      
     } catch (e) {
       _logger.e('Error in initial data loading: $e');
-      
-      if (!mounted) return;
-      
-      setState(() {
-        _hasError = true;
-      });
-      
       if (mounted) {
+        setState(() {
+          _hasError = true;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading data: $e')),
         );
@@ -92,26 +80,12 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadUserInfo() async {
     try {
       final user = _authService.currentUser;
-      
       if (user == null) {
-        _logger.w('No user found in AuthService');
-        
         await _authService.forceAuthStateUpdate();
-        
         final refreshedUser = _authService.currentUser;
-        
-        if (refreshedUser == null) {
-          _logger.w('Still no user after auth state update');
-          setState(() {
-            _userEmail = 'Not signed in';
-            _userName = 'Guest';
-          });
-          return;
-        }
-        
         setState(() {
-          _userEmail = refreshedUser.email;
-          _userName = refreshedUser.name ?? 'User';
+          _userEmail = refreshedUser?.email ?? 'Not signed in';
+          _userName = refreshedUser?.name ?? 'Guest';
         });
       } else {
         setState(() {
@@ -119,8 +93,6 @@ class _HomePageState extends State<HomePage> {
           _userName = user.name ?? 'User';
         });
       }
-      
-      _logger.i('User info loaded: $_userName ($_userEmail)');
     } catch (e) {
       _logger.e('Error loading user info: $e');
       setState(() {
@@ -140,76 +112,39 @@ class _HomePageState extends State<HomePage> {
     });
     
     try {
-      _logger.i('Loading chat sessions');
-      
       final model = await _chatService.getSelectedModel();
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[model ?? ''] ?? false;
       
       if (!supportsHistory && mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Current model does not support conversation history. Using local chat mode.'),
-                duration: const Duration(seconds: 6),
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Current model does not support conversation history. Using local chat mode.'),
+              duration: Duration(seconds: 6),
+            ),
+          );
         });
       }
       
       final chatSessions = await _chatService.getUserChatSessions();
-      
       if (!mounted) return;
       
       setState(() {
         _chatSessions = chatSessions;
         _isLoading = false;
-        
-        if (_chatSessions.isEmpty) {
-          _noConversationsYet = true;
-        } else {
-          _noConversationsYet = false;
-        }
+        _noConversationsYet = _chatSessions.isEmpty;
       });
     } catch (e) {
       _logger.e('Error loading chat sessions: $e');
-      
       if (!mounted) return;
-      
-      if (e.toString().toLowerCase().contains('does not support conversation history') ||
-          e.toString().toLowerCase().contains('400 bad request')) {
-        setState(() {
-          _isLoading = false;
-          _noConversationsYet = true;
-        });
-        
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('The selected model ($_selectedModel) does not support conversation history. Chat history will be stored locally.'),
-                duration: const Duration(seconds: 6),
-              ),
-            );
-          });
-        }
-        return;
-      }
       
       setState(() {
         _isLoading = false;
         _error = 'Failed to load conversations. Please try again.';
       });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_error ?? 'Unknown error'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_error ?? 'Unknown error')),
+      );
     }
   }
   
@@ -228,16 +163,11 @@ class _HomePageState extends State<HomePage> {
   
   Future<void> _createNewChat() async {
     try {
-      _logger.i('Creating new chat in Home Page');
-      
       setState(() {
         _isLoading = true;
       });
       
       final newChat = await _chatService.createChatSession('New Chat');
-      
-      if (!mounted) return;
-      
       setState(() {
         _isLoading = false;
       });
@@ -254,32 +184,20 @@ class _HomePageState extends State<HomePage> {
       
       _refreshChatSessions();
     } on InsufficientTokensException catch (e) {
-      _logger.e('Insufficient tokens error: ${e.message}');
-      
-      if (!mounted) return;
-      
       setState(() {
         _isLoading = false;
       });
-      
       _showInsufficientTokensDialog(e.message);
     } catch (e) {
-      _logger.e('Error creating chat session: $e');
-      
-      if (!mounted) return;
-      
       setState(() {
         _isLoading = false;
       });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error creating new chat: ${e.toString()}'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error creating new chat: ${e.toString()}'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
     }
   }
   
@@ -330,13 +248,11 @@ class _HomePageState extends State<HomePage> {
 
     try {
       final success = await _chatService.deleteChatSession(session.id);
-      
       if (mounted) {
         if (success) {
           setState(() {
             _chatSessions.removeWhere((s) => s.id == session.id);
           });
-          
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Chat deleted')),
           );
@@ -345,23 +261,17 @@ class _HomePageState extends State<HomePage> {
             const SnackBar(content: Text('Failed to delete chat')),
           );
         }
-        
         setState(() {
           _isLoading = false;
         });
       }
     } catch (e) {
-      _logger.e('Error deleting chat session: $e');
-      
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      }
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: ${e.toString()}')),
+      );
     }
   }
   
@@ -370,33 +280,23 @@ class _HomePageState extends State<HomePage> {
       setState(() {
         _selectedModel = model;
       });
-      
       await _chatService.updateSelectedModel(model);
-      
       if (!mounted) return;
       
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Model updated to $model${supportsHistory ? '' : ' (Local chat mode - history not saved on server)'}'),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Model updated to ${ApiConstants.modelNames[model] ?? model}${supportsHistory ? '' : ' (Local chat mode - history not saved on server)'}'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
       _loadChatSessions();
     } catch (e) {
-      _logger.e('Error updating model: $e');
-      
       if (!mounted) return;
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update model: $e')),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update model: $e')),
+      );
     }
   }
   
@@ -404,52 +304,44 @@ class _HomePageState extends State<HomePage> {
     try {
       await _authService.signOut();
       if (!mounted) return;
+      
       Navigator.pushReplacementNamed(context, '/login');
     } catch (e) {
-      _logger.e('Error signing out: $e');
       if (!mounted) return;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error signing out: $e')),
-        );
-      }
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error signing out: $e')),
+      );
     }
   }
   
   Future<void> _checkAndFixApiIssues() async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
     });
     
     try {
-      _logger.i('Checking and fixing API issues');
-      
       await _chatService.forceUseApiMode(true);
-      
+      await _loadChatSessions();
       if (!mounted) return;
       
-      await _loadChatSessions();
-      
-      final currentContext = context;
-      if (mounted) {
-        ScaffoldMessenger.of(currentContext).showSnackBar(
-          const SnackBar(
-            content: Text('API connection restored. Chat history should now be saved.'),
-            duration: Duration(seconds: 5),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('API connection restored. Chat history should now be saved.'),
+          duration: Duration(seconds: 5),
+        ),
+      );
     } catch (e) {
-      _logger.e('Error checking API issues: $e');
+      if (!mounted) return;
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not restore API connection: $e'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not restore API connection: $e'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -463,17 +355,20 @@ class _HomePageState extends State<HomePage> {
     try {
       await _chatService.forceUseApiMode(true);
       await _authService.forceAuthStateUpdate();
-      
       if (mounted) {
         setState(() {});
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     }
+  }
+
+  void _refreshChatSessions() {
+    _loadChatSessions();
   }
 
   @override
@@ -613,7 +508,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      
       floatingActionButton: FloatingActionButton(
         onPressed: _createNewChat,
         tooltip: _noConversationsYet ? 'Create first chat' : 'New Chat',
@@ -627,17 +521,11 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.error_outline,
-            size: 64,
-            color: Colors.red,
-          ),
+          const Icon(Icons.error_outline, size: 64, color: Colors.red),
           const SizedBox(height: 16),
           const Text(
             'Đã xảy ra lỗi khi tải danh sách trò chuyện',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
@@ -660,17 +548,11 @@ class _HomePageState extends State<HomePage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.chat_bubble_outline,
-            size: 80,
-            color: Colors.grey,
-          ),
+          const Icon(Icons.chat_bubble_outline, size: 80, color: Colors.grey),
           const SizedBox(height: 16),
           const Text(
             'Chưa có cuộc trò chuyện nào',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -695,8 +577,8 @@ class _HomePageState extends State<HomePage> {
         final isLocalSession = session.id.startsWith('local_');
         
         return Card(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          elevation: 1,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          elevation: 2,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
@@ -704,10 +586,7 @@ class _HomePageState extends State<HomePage> {
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             title: Text(
               _formatChatTitle(session.title),
-              style: const TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 16,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 16),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -723,19 +602,13 @@ class _HomePageState extends State<HomePage> {
                     ),
                     child: Text(
                       'Local',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Colors.grey[700],
-                      ),
+                      style: TextStyle(fontSize: 10, color: Colors.grey[700]),
                     ),
                   ),
                 Expanded(
                   child: Text(
                     'Created: ${_formatDate(session.createdAt)}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -774,12 +647,10 @@ class _HomePageState extends State<HomePage> {
   
   String _formatChatTitle(String title) {
     if (title.length <= 40) return title;
-    
     final questionIndex = title.indexOf('?');
     if (questionIndex > 0 && questionIndex < 60) {
       return title.substring(0, questionIndex + 1);
     }
-    
     return '${title.substring(0, 37)}...';
   }
   
@@ -800,11 +671,6 @@ class _HomePageState extends State<HomePage> {
       Colors.teal[700]!,
       Colors.pink[700]!,
     ];
-    
     return colors[colorSeed % colors.length];
-  }
-  
-  void _refreshChatSessions() {
-    _loadChatSessions();
   }
 }

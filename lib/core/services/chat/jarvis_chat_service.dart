@@ -499,16 +499,10 @@ class JarvisChatService {
             final bool isUserMessage = item.containsKey('query');
             final String content = isUserMessage ? (item['query'] ?? '') : (item['answer'] ?? '');
             
-            // Skip the dummy message used to initiate the conversation
+            // Don't mark any messages as system messages - display all of them
+            // But still log them for debugging purposes
             if (isUserMessage && content == 'start_conversation') {
-              _logger.d('Skipping dummy start message');
-              continue;
-            }
-            
-            // Skip duplicate welcome message from user side if it matches the AI welcome message
-            if (isUserMessage && content == 'Hello, how can I help you today?') {
-              _logger.w('Skipping duplicate welcome message from user side');
-              continue;
+              _logger.d('Found initialization message - including in chat');
             }
             
             messages.add(Message(
@@ -518,7 +512,7 @@ class JarvisChatService {
               timestamp: item['createdAt'] != null
                   ? DateTime.fromMillisecondsSinceEpoch(item['createdAt'] * 1000)
                   : DateTime.now(),
-              metadata: item,
+              metadata: item is Map ? item.cast<String, dynamic>() : null,
             ));
           }
         } else {
@@ -762,6 +756,6 @@ class JarvisChatService {
   
   // Helper function to get min of two integers
   int min(int a, int b) {
-    return a < b ? a : b;
+    return a < b ? a : b;  // Fix: Use proper comparison syntax
   }
 }
