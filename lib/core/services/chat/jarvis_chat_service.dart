@@ -433,22 +433,83 @@ class JarvisChatService {
   }
   
   /// Delete a chat session
-  Future<bool> deleteChatSession(String sessionId) async {
+  Future<bool> deleteChatSession(String sessionId, {int retryCount = 0}) async {
     try {
       _logger.i('Deleting chat session: $sessionId');
       
+      // Make sure sessionId is valid
+      if (sessionId.isEmpty) {
+        _logger.e('Cannot delete chat session: Empty session ID');
+        return false;
+      }
+      
+      // Get headers and add required x-jarvis-guid header
+      final headers = _authService.getHeaders();
+      headers['x-jarvis-guid'] = '';
+      
+      // Add required query parameters - API expects assistantModel as a valid enum value
+      final queryParams = {
+        'assistantModel': 'dify', // Required parameter per API error message
+      };
+      
+      // Get selected model to include as query parameter if available
+      final selectedModel = await getSelectedModel();
+      if (selectedModel != null && selectedModel.isNotEmpty) {
+        queryParams['assistantId'] = selectedModel;
+      }
+      
+      // Construct URL with proper formatting and query parameters
+      final uri = Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}/$sessionId')
+          .replace(queryParameters: queryParams);
+      
+      _logger.d('Delete session URL: $uri');
+      _logger.d('Using headers: $headers');
+      
       // Make API request
       final response = await http.delete(
-        Uri.parse('${ApiConstants.jarvisApiUrl}${ApiConstants.conversations}/$sessionId'),
-        headers: _authService.getHeaders(),
+        uri,
+        headers: headers,
       );
+      
+      // Log the response details
+      _logger.d('Delete response status: ${response.statusCode}');
+      _logger.d('Delete response body: ${response.body}');
       
       // Clear cache to force refresh on next getUserChatSessions
       _lastChatSessionsRefresh = null;
       
-      return response.statusCode == 200 || response.statusCode == 204;
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        _logger.i('Chat session deleted successfully');
+        return true;
+      } else if ((response.statusCode == 401 || response.statusCode == 403) && retryCount < 2) {
+        // Try to refresh token and retry with non-recursive approach
+        _logger.w('Authentication error (${response.statusCode}), attempting to refresh token');
+        final refreshed = await _authService.refreshToken();
+        
+        if (refreshed) {
+          _logger.i('Token refreshed, retrying delete operation');
+          return await deleteChatSession(sessionId, retryCount: retryCount + 1);
+        } else {
+          _logger.w('Token refresh failed, cannot delete chat session');
+          return false;
+        }
+      } else {
+        // Log error details
+        _logger.e('Error deleting chat session: ${response.statusCode} ${response.reasonPhrase}');
+        
+        try {
+          if (response.body.isNotEmpty) {
+            final errorData = jsonDecode(response.body);
+            _logger.e('Error details: $errorData');
+          }
+        } catch (e) {
+          // Ignore JSON parsing errors
+        }
+        
+        return false;
+      }
     } catch (e) {
-      _logger.e('Error deleting chat session: $e');
+      _logger.e('Exception deleting chat session: $e');
       return false;
     }
   }
