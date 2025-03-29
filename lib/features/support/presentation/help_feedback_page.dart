@@ -14,7 +14,6 @@ class _HelpFeedbackPageState extends State<HelpFeedbackPage> {
   final TextEditingController _feedbackController = TextEditingController();
   bool _isSendingFeedback = false;
   bool _showThankYou = false;
-  final String _supportEmail = 'support@jarvis.cx';
 
   @override
   void dispose() {
@@ -69,53 +68,18 @@ class _HelpFeedbackPageState extends State<HelpFeedbackPage> {
     }
   }
 
-  Future<void> _sendEmailToSupport() async {
-    final Uri emailUri = Uri(
-      scheme: 'mailto',
-      path: _supportEmail,
-      query: _encodeQueryParameters({
-        'subject': 'Support Request - AI Chat Bot',
-        'body': 'Hi Support Team,\n\nI need help with the following issue:\n\n',
-      }),
-    );
-
-    try {
-      if (await canLaunchUrl(emailUri)) {
-        await launchUrl(emailUri);
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not launch email client. Please email $_supportEmail directly.')),
-        );
-      }
-    } catch (e) {
-      _logger.e('Error launching email: $e');
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    }
-  }
-
-  String? _encodeQueryParameters(Map<String, String> params) {
-    return params.entries
-        .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
-        .join('&');
-  }
-
   void _viewFAQ() {
     // In a real app, you would navigate to a FAQ page
     // For now, we'll just show a dialog with some sample FAQs
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Frequently Asked Questions'),
+      builder: (context) => const AlertDialog(
+        title: Text('Frequently Asked Questions'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
-            children: const [
+            children: [
               Text('Q: How do I create a new chat?', style: TextStyle(fontWeight: FontWeight.bold)),
               SizedBox(height: 4),
               Text('A: Tap the "+" button on the home screen to start a new chat.'),
@@ -142,6 +106,42 @@ class _HelpFeedbackPageState extends State<HelpFeedbackPage> {
             ],
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: null, // Will be overridden in context
+            child: Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _launchUrl(String url) async {
+    try {
+      final Uri uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not launch URL')),
+        );
+      }
+    } catch (e) {
+      _logger.e('Error launching URL: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
+  }
+
+  void _showLiveChatInfo() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Live Chat Information'),
+        content: const Text('Our live chat is available 24/7 to assist you.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -189,9 +189,15 @@ class _HelpFeedbackPageState extends State<HelpFeedbackPage> {
 
                     ListTile(
                       leading: const Icon(Icons.email),
-                      title: const Text('Contact Support'),
-                      subtitle: Text('Email: $_supportEmail'),
-                      onTap: _sendEmailToSupport,
+                      title: const Text('Email'),
+                      subtitle: const Text('support@example.com'),
+                      onTap: () => _launchUrl('mailto:support@example.com'),
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.chat),
+                      title: const Text('Live Chat'),
+                      subtitle: const Text('Available 24/7'),
+                      onTap: () => _showLiveChatInfo(),
                     ),
                   ],
                 ),

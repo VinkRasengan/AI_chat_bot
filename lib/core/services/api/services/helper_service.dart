@@ -38,26 +38,6 @@ class HelperService {
     }
   }
   
-  /// Format API error messages to be more user-friendly
-  static String formatApiError(dynamic error) {
-    // If the error is a simple string, return it
-    if (error is String) {
-      return error;
-    }
-    
-    // If the error is a map, extract the message
-    if (error is Map) {
-      if (error.containsKey('message')) {
-        return error['message'] as String;
-      } else if (error.containsKey('error')) {
-        return error['error'] as String;
-      }
-    }
-    
-    // Default error message
-    return 'An unexpected error occurred: $error';
-  }
-  
   /// Convert snake_case to camelCase for API data
   static Map<String, dynamic> snakeToCamelCase(Map<String, dynamic> data) {
     final result = <String, dynamic>{};

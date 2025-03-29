@@ -3,6 +3,7 @@ import 'package:logger/logger.dart';
 import '../../../core/models/chat/chat_session.dart';
 import '../../../core/models/chat/message.dart';
 import '../../../core/services/chat/jarvis_chat_service.dart';
+import '../../../core/services/auth/auth_service.dart';
 import '../../../widgets/ai/model_selector_widget.dart';
 import '../../../widgets/chat/message_bubble_widget.dart';
 import '../../../widgets/chat/chat_input_widget.dart';
@@ -21,26 +22,25 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
-  final JarvisChatService _chatService = JarvisChatService();
+  final AuthService _authService = AuthService();
+  late final JarvisChatService _chatService;
   final Logger _logger = Logger();
   
   List<Message> _messages = [];
   bool _isLoading = true;
-  bool _isSending = false;
+  final bool _isSending = false;
+  final bool _waitingForResponse = false;
   String _currentModel = 'gemini-1.5-flash-latest';
-  String? _errorMessage;
-  bool _waitingForResponse = false;
   
   @override
   void initState() {
     super.initState();
+    _chatService = JarvisChatService(_authService);
     _loadModel();
     
-    // Show warning if using a model that doesn't support history
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadMessages();
       
-      // Check if this is a local session due to model limitations
       final isLocalSession = widget.chatSession.id.startsWith('local_');
       final isNoHistoryModel = widget.chatSession.metadata != null && 
                               widget.chatSession.metadata!['noHistorySupport'] == true;
@@ -64,16 +64,13 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     
     try {
-      // Check if we're using a local session (fallback mode)
       final isLocalSession = widget.chatSession.id.startsWith('local_');
-      final isUsingGemini = _chatService.isUsingDirectGeminiApi();
+      final isUsingGemini = await _chatService.isUsingDirectGeminiApi();
       
       if (isLocalSession || isUsingGemini) {
-        // In fallback mode, we don't have persistent history
         setState(() {
           _isLoading = false;
           if (_messages.isEmpty && mounted) {
-            // Show an informative message for the user - moved to postBuild callback
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -89,19 +86,15 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       
-      // Get messages from API
       final messages = await _chatService.getMessages(widget.chatSession.id);
       
       if (!mounted) return;
       
       if (messages.isEmpty && !isUsingGemini) {
-        // Check for diagnostic info to help user
-        final diagnostics = _chatService.getDiagnosticInfo();
+        final diagnostics = await _chatService.getDiagnosticInfo();
         _logger.i('Chat diagnostics: $diagnostics');
         
-        // If API is having auth issues but we're not in fallback mode yet
         if (diagnostics['hasApiError'] == true && !isUsingGemini && mounted) {
-          // Moved to postBuild callback
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -121,7 +114,6 @@ class _ChatScreenState extends State<ChatScreen> {
           _isLoading = false;
         });
         
-        // Scroll to bottom after loading messages
         if (_messages.isNotEmpty) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _scrollToBottom();
@@ -133,7 +125,6 @@ class _ChatScreenState extends State<ChatScreen> {
       
       if (!mounted) return;
       
-      // Check for specific error types
       final errorMessage = e.toString().toLowerCase();
       String userMessage;
       
@@ -147,10 +138,8 @@ class _ChatScreenState extends State<ChatScreen> {
       
       setState(() {
         _isLoading = false;
-        // Add empty state or error state UI
       });
       
-      // Moved to postBuild callback
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -176,80 +165,57 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _sendMessage(String text) async {
     if (text.isEmpty) return;
-
+    
     setState(() {
-      _isSending = true;
-      _errorMessage = null;
-      _waitingForResponse = true;
+      _isLoading = true;
     });
-
+    
     try {
-      // Create a temporary message to show immediately
-      final tempMessage = Message(
+      final userMessage = Message(
         text: text,
         isUser: true,
         timestamp: DateTime.now(),
       );
       
       setState(() {
-        _messages.add(tempMessage);
+        _messages.add(userMessage);
       });
       
-      // Scroll to the bottom
-      _scrollToBottom();
+      final bool isUsingDirectApi = await _chatService.isUsingDirectGeminiApi();
       
-      // Send the message
-      final userMessage = await _chatService.sendMessage(widget.chatSession.id, text);
-      
-      // Check if the session is using local fallback mode
-      final isLocalSession = widget.chatSession.id.startsWith('local_') || 
-                           _chatService.isUsingDirectGeminiApi();
-      
-      if (isLocalSession) {
-        // For local sessions, we need to generate a response using Gemini API directly
-        
-        // Convert previous messages to a format Gemini can use
-        final chatHistory = _messages
-            .take(_messages.length - 1) // Exclude the message we just added
-            .map((msg) => {
-              'role': msg.isUser ? 'user' : 'assistant',
-              'content': msg.text,
-            })
-            .toList();
-        
-        // Get AI response using direct Gemini API
-        final response = await _chatService.getDirectAIResponse(text, chatHistory);
+      if (isUsingDirectApi) {
+        final response = await _chatService.getDirectAIResponse(text);
         
         setState(() {
-          // Add AI response message
           _messages.add(Message(
             text: response,
             isUser: false,
             timestamp: DateTime.now(),
           ));
+          _isLoading = false;
         });
       } else {
-        // For Jarvis API sessions, refresh messages to get the AI response
-        final messages = await _chatService.getMessages(widget.chatSession.id);
+        await _chatService.sendMessage(widget.chatSession.id, text);
         
-        setState(() {
-          _messages = messages;
-        });
+        final updatedMessages = await _chatService.getMessages(widget.chatSession.id);
+        
+        if (mounted) {
+          setState(() {
+            _messages = updatedMessages;
+            _isLoading = false;
+          });
+        }
       }
-      
-      // Scroll to the bottom
-      _scrollToBottom();
     } catch (e) {
-      _logger.e('Error sending message: $e');
-      
-      setState(() {
-        _errorMessage = 'Failed to send message: ${e.toString()}';
-      });
-    } finally {
-      setState(() {
-        _isSending = false;
-        _waitingForResponse = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
   
@@ -268,7 +234,6 @@ class _ChatScreenState extends State<ChatScreen> {
       _currentModel = model;
     });
     
-    // Save selected model
     _chatService.updateSelectedModel(model);
   }
   
@@ -285,7 +250,6 @@ class _ChatScreenState extends State<ChatScreen> {
         leading: IconButton(
           icon: const Icon(Icons.menu),
           onPressed: () {
-            // Show drawer of parent HomePage
             Scaffold.of(context).openDrawer();
           },
         ),
@@ -300,7 +264,6 @@ class _ChatScreenState extends State<ChatScreen> {
                 color: Colors.black,
               ),
             ),
-            // Show model name in subtitle
             Text(
               _getModelDisplayName(_currentModel),
               style: TextStyle(
@@ -321,7 +284,6 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          // Messages list
           Expanded(
             child: Container(
               color: Colors.white,
@@ -335,7 +297,6 @@ class _ChatScreenState extends State<ChatScreen> {
                           itemCount: _messages.length + (_waitingForResponse ? 1 : 0),
                           itemBuilder: (context, index) {
                             if (index == _messages.length && _waitingForResponse) {
-                              // Show typing indicator
                               return MessageBubbleWidget(
                                 message: Message(
                                   text: '',
@@ -359,7 +320,6 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           
-          // Input box
           ChatInputWidget(
             onSendMessage: _sendMessage,
             isLoading: _isSending,
@@ -482,7 +442,7 @@ class _ChatScreenState extends State<ChatScreen> {
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                Navigator.pop(context); // Return to home page
+                Navigator.pop(context);
               },
               child: const Text('Delete', style: TextStyle(color: Colors.red)),
             ),
@@ -493,7 +453,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
   
   String _formatTitle(String title) {
-    // If title is too long, truncate it
     if (title.length > 30) {
       return '${title.substring(0, 27)}...';
     }
@@ -501,7 +460,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
   
   String _getModelDisplayName(String modelId) {
-    // Map model IDs to user-friendly names
     const modelNames = {
       'gemini-1.5-flash-latest': 'Gemini 1.5 Flash',
       'gemini-1.5-pro-latest': 'Gemini 1.5 Pro',

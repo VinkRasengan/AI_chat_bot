@@ -332,12 +332,6 @@ class JarvisAuthProvider implements AuthProviderInterface {
   }
 
   @override
-  Future<bool> manuallySetEmailVerified() async {
-    _logger.w('Manual email verification is disabled for security reasons');
-    return false;
-  }
-
-  @override
   Future<bool> updateUserProfile(Map<String, dynamic> userData) async {
     if (!_isInitialized) await initialize();
 
@@ -585,17 +579,13 @@ class JarvisAuthProvider implements AuthProviderInterface {
         throw params['error_description'] ?? params['error'] ?? 'Unknown Google auth error';
       }
 
-      // Extract code and state
+      // Extract code
       final code = params['code'];
-      final state = params['state'];
 
       if (code == null || code.isEmpty) {
         _logger.e('No code found in Google auth response');
         throw 'No authentication code found in the response';
       }
-
-      // Validate state if needed (anti-CSRF)
-      // This would require storing the state when generating the URL and comparing it here
 
       // Exchange code for tokens
       final response = await http.post(
@@ -688,14 +678,16 @@ class JarvisAuthProvider implements AuthProviderInterface {
     }
   }
 
+  @override
+  Future<bool> manuallySetEmailVerified() async {
+    _logger.w('Manual email verification is disabled for security reasons');
+    return false;
+  }
+
   /// Get the current access token synchronously
   String? getCurrentToken() {
     try {
       // Get token directly from shared preferences synchronously if possible
-      final prefs = SharedPreferences.getInstance().then((prefs) {
-        return prefs.getString(ApiConstants.accessTokenKey);
-      });
-      
       // Since we can't await in a sync method, we'll need a different approach
       // This is a workaround - in a real app, use a token cache in memory
       
@@ -745,6 +737,7 @@ class JarvisAuthProvider implements AuthProviderInterface {
           final userId = _apiService.getUserId();
           if (userId != null) {
             _currentUser = UserModel(
+              id: userId, // Add the required 'id' parameter
               uid: userId,
               email: '',
               createdAt: DateTime.now(),
@@ -798,10 +791,11 @@ class JarvisAuthProvider implements AuthProviderInterface {
   // Helper method to save authentication tokens
   Future<void> _saveAuthToken(String accessToken, String refreshToken, String userId) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('accessToken', accessToken);
-      await prefs.setString('refreshToken', refreshToken);
-      await prefs.setString('userId', userId);
+      await SharedPreferences.getInstance().then((prefs) {
+        prefs.setString('accessToken', accessToken);
+        prefs.setString('refreshToken', refreshToken);
+        prefs.setString('userId', userId);
+      });
 
       _logger.i('Authentication tokens saved to preferences');
     } catch (e) {

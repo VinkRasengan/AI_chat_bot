@@ -49,23 +49,27 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 12.0, red: Colors.black.r.toDouble(), green: Colors.black.g.toDouble(), blue: Colors.black.b.toDouble()),
             offset: const Offset(0, -1),
             blurRadius: 3,
           ),
         ],
         border: Border(
-          top: BorderSide(color: Colors.grey.withOpacity(0.2)),
+          top: BorderSide(
+            color: Colors.grey.withValues(alpha: 51.0, red: Colors.grey.r.toDouble(), green: Colors.grey.g.toDouble(), blue: Colors.grey.b.toDouble()),
+          ),
         ),
       ),
       child: Container(
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.grey.withOpacity(0.3)),
+          border: Border.all(
+            color: Colors.grey.withValues(alpha: 76.0, red: Colors.grey.r.toDouble(), green: Colors.grey.g.toDouble(), blue: Colors.grey.b.toDouble()),
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 12.0, red: Colors.black.r.toDouble(), green: Colors.black.g.toDouble(), blue: Colors.black.b.toDouble()),
               spreadRadius: 1,
               blurRadius: 2,
             ),
@@ -97,7 +101,9 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: _hasText ? const Color(0xFF1A7BF5) : Colors.transparent,
+                color: _hasText 
+                    ? const Color(0xFF1A7BF5).withValues(alpha: 255.0, red: 26.0, green: 123.0, blue: 245.0) 
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(18),
               ),
               child: IconButton(
@@ -108,12 +114,17 @@ class _ChatInputWidgetState extends State<ChatInputWidget> {
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            _hasText ? Colors.white : Colors.grey[400]!),
+                            _hasText 
+                                ? const Color(0xFFFFFFFF).withValues(alpha: 255.0, red: 255.0, green: 255.0, blue: 255.0) 
+                                : Colors.grey[400]!.withValues(alpha: 102.0, red: Colors.grey[400]!.r.toDouble(), green: Colors.grey[400]!.g.toDouble(), blue: Colors.grey[400]!.b.toDouble()),
+                          ),
                         ),
                       )
                     : Icon(
                         Icons.send,
-                        color: _hasText ? Colors.white : Colors.grey[400],
+                        color: _hasText 
+                            ? const Color(0xFFFFFFFF).withValues(alpha: 255.0, red: 255.0, green: 255.0, blue: 255.0) 
+                            : Colors.grey[400]!.withValues(alpha: 102.0, red: Colors.grey[400]!.r.toDouble(), green: Colors.grey[400]!.g.toDouble(), blue: Colors.grey[400]!.b.toDouble()),
                         size: 18,
                       ),
                 splashRadius: 22,

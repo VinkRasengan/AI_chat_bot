@@ -8,8 +8,8 @@ import '../../../constants/api_constants.dart';
 class AuthService {
   final Logger _logger = Logger();
   
-  String _authApiUrl = ApiConstants.authApiUrl;
-  String _jarvisApiUrl = ApiConstants.jarvisApiUrl;
+  final String _authApiUrl = ApiConstants.authApiUrl;
+  final String _jarvisApiUrl = ApiConstants.jarvisApiUrl;
   String? _accessToken;
   String? _refreshToken;
   String? _userId;

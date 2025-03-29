@@ -120,4 +120,15 @@ class InputValidators {
     
     return null;
   }
+
+  /// Validate email format (boolean)
+  static bool isValidEmail(String email) {
+    final emailRegex = RegExp(r'^[^@]+@[^@]+\.[^@]+');
+    return emailRegex.hasMatch(email);
+  }
+
+  /// Validate password length
+  static bool isValidPassword(String password) {
+    return password.length >= 8;
+  }
 }

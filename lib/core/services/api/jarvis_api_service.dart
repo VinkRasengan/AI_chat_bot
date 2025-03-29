@@ -9,6 +9,7 @@ import 'api_service.dart';
 import 'services/auth_service.dart';
 import 'services/user_service.dart';
 import 'services/ai_chat_service.dart';
+import 'dart:convert';
 
 class JarvisApiService implements ApiService {
   static final JarvisApiService _instance = JarvisApiService._internal();
@@ -51,13 +52,7 @@ class JarvisApiService implements ApiService {
         _logger.i('Auth service initialized successfully');
       } catch (e) {
         _logger.e('Error initializing auth service: $e');
-        _logger.i('Will use local fallback mode for authentication');
-      }
-      
-      // Ensure local fallback mode is active if there are initialization issues
-      if (_apiKey == ApiConstants.defaultApiKey) {
-        _logger.w('Using default API key - activating fallback mode');
-        await _aiChatService.setFallbackMode(true);
+        _logger.i('Will retry initialization on the next API call');
       }
       
       _logger.i('Initialized Jarvis API service with auth, user, and AI chat services');
@@ -66,13 +61,6 @@ class JarvisApiService implements ApiService {
       _logger.e('Error initializing Jarvis API service: $e');
       // Still mark as initialized to prevent repeated initialization attempts
       _isInitialized = true;
-      
-      // Activate fallback mode to ensure the app works despite initialization issues
-      try {
-        await _aiChatService.setFallbackMode(true);
-      } catch (_) {
-        // Ignore errors in fallback activation
-      }
     }
   }
 
@@ -221,6 +209,26 @@ class JarvisApiService implements ApiService {
   }
 
   @override
+  Future<Map<String, dynamic>?> getUserProfile() async {
+    await _ensureInitialized();
+    try {
+      final user = await _userService.getCurrentUser();
+      if (user != null) {
+        return {
+          'id': user.id,
+          'email': user.email,
+          'name': user.name,
+          'isEmailVerified': user.isEmailVerified
+        };
+      }
+      return null;
+    } catch (e) {
+      _logger.e('Error getting user profile: $e');
+      return null;
+    }
+  }
+
+  @override
   Map<String, String> getApiConfig() {
     return {
       'authApiUrl': ApiConstants.authApiUrl,
@@ -231,10 +239,63 @@ class JarvisApiService implements ApiService {
     };
   }
   
-  // Helper to switch to fallback mode
-  void switchToFallbackMode() {
-    _logger.i('Switching to fallback API mode due to persistent authentication issues.');
-    _authService.clearAuthToken();
+  @override
+  Future<Map<String, dynamic>> get(String endpoint, {bool requiresAuth = true}) async {
+    try {
+      await _ensureInitialized();
+      
+      final headers = requiresAuth ? getAuthHeaders() : getHeaders();
+      
+      final response = await http.get(
+        Uri.parse(endpoint),
+        headers: headers,
+      );
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return jsonDecode(response.body);
+      } else {
+        _logger.e('API GET error: [${response.statusCode}] ${response.reasonPhrase}');
+        throw 'API error: ${response.statusCode} ${response.reasonPhrase}';
+      }
+    } catch (e) {
+      _logger.e('API GET exception: $e');
+      rethrow;
+    }
+  }
+  
+  @override
+  Future<Map<String, dynamic>> post(String endpoint, Map<String, dynamic> data, {bool requiresAuth = true}) async {
+    try {
+      await _ensureInitialized();
+      
+      final headers = requiresAuth ? getAuthHeaders() : getHeaders();
+      
+      final response = await http.post(
+        Uri.parse(endpoint),
+        headers: headers,
+        body: jsonEncode(data),
+      );
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return jsonDecode(response.body);
+      } else {
+        _logger.e('API POST error: [${response.statusCode}] ${response.reasonPhrase}');
+        throw 'API error: ${response.statusCode} ${response.reasonPhrase}';
+      }
+    } catch (e) {
+      _logger.e('API POST exception: $e');
+      rethrow;
+    }
+  }
+  
+  @override
+  Map<String, String> getAuthHeaders() {
+    return _authService.getAuthHeaders();
+  }
+  
+  @override
+  Map<String, String> getHeaders() {
+    return _authService.getHeaders();
   }
   
   // Ensure the service is initialized before use

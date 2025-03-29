@@ -16,10 +16,9 @@ class AiChatService {
   // Store selected model
   String? _selectedModel;
   
-  // Error tracking and recovery
+  // Error tracking
   bool _hasAuthError = false;
   int _errorCount = 0;
-  bool _useLocalFallback = false;
   
   AiChatService(this._authService);
   
@@ -42,14 +41,8 @@ class AiChatService {
   
   /// Get a list of conversations for the current user
   Future<List<ChatSession>> getConversations() async {
-    // Skip immediate fallback check and try API first if we have a valid token
+    // Check if we have a valid token
     await _checkForValidToken();
-    
-    // Now check if we're still in fallback mode after the token check
-    if (_useLocalFallback) {
-      _logger.i('Using local fallback mode, returning empty conversations list');
-      return [];
-    }
     
     try {
       // Check if selected model supports conversation history
@@ -60,10 +53,6 @@ class AiChatService {
         _logger.i('Selected model does not support conversation history, returning empty list');
         return [];
       }
-      
-      // Reset fallback mode if we're attempting an API call
-      // This ensures we can recover from temporary failures
-      _useLocalFallback = false;
       
       // Prepare query parameters according to the API documentation
       final queryParams = {
@@ -136,13 +125,6 @@ class AiChatService {
         _hasAuthError = true;
         _errorCount++;
         
-        // If we've had too many errors, switch to local fallback mode
-        if (_errorCount >= 3) {
-          _logger.w('Multiple auth errors, switching to local fallback mode');
-          _useLocalFallback = true;
-          return [];
-        }
-        
         // Try to refresh the token and try again
         await _authService.refreshToken();
         
@@ -170,25 +152,12 @@ class AiChatService {
       
       _errorCount++;
       _logger.e('Error getting conversations: $e');
-      
-      // After repeated errors, switch to local fallback mode
-      if (_errorCount >= 3) {
-        _useLocalFallback = true;
-        _logger.w('Multiple errors, switching to local fallback mode');
-        return [];
-      }
-      
       throw 'Failed to get conversations: $e';
     }
   }
   
   /// Get conversation history/messages for a specific conversation
   Future<List<Message>> getConversationHistory(String conversationId) async {
-    // If we're using local fallback, return empty message list
-    if (_useLocalFallback || conversationId.startsWith('local_')) {
-      return [];
-    }
-    
     try {
       _logger.i('Getting conversation history for: $conversationId');
       
@@ -307,16 +276,6 @@ class AiChatService {
   
   /// Send a message to a conversation
   Future<Message> sendMessage(String conversationId, String text) async {
-    // If we're in local fallback mode, just return the user message
-    if (_useLocalFallback || conversationId.startsWith('local_')) {
-      _logger.i('Using local fallback mode for sending message');
-      return Message(
-        text: text,
-        isUser: true,
-        timestamp: DateTime.now(),
-      );
-    }
-    
     try {
       _logger.i('Sending message to conversation: $conversationId');
       
@@ -434,24 +393,11 @@ class AiChatService {
           );
         }
         
-        // If retry failed, switch to local fallback mode
-        _useLocalFallback = true;
-        _logger.w('Switching to local fallback mode after auth failures');
-        
-        return Message(
-          text: text,
-          isUser: true,
-          timestamp: DateTime.now(),
-        );
+        // If retry failed, throw an error
+        throw 'Authentication failed after token refresh';
       } else {
         _logger.e('Error sending message: ${response.body}');
-        
-        // For non-auth errors, just return the user message to maintain UX
-        return Message(
-          text: text,
-          isUser: true,
-          timestamp: DateTime.now(),
-        );
+        throw 'Failed to send message: ${response.statusCode} ${response.reasonPhrase}';
       }
     } catch (e) {
       _logger.e('Error sending message: $e');
@@ -463,27 +409,12 @@ class AiChatService {
         _hasAuthError = true;
       }
       
-      // Return the user message even on error
-      return Message(
-        text: text,
-        isUser: true,
-        timestamp: DateTime.now(),
-      );
+      throw 'Error: $e';
     }
   }
   
   /// Create a new conversation
   Future<ChatSession> createConversation(String title) async {
-    // If we're in local fallback mode, create a local session
-    if (_useLocalFallback) {
-      _logger.i('Using local fallback mode, creating local chat session');
-      return ChatSession(
-        id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-        title: title.isEmpty ? 'New Chat' : title,
-        createdAt: DateTime.now(),
-      );
-    }
-    
     try {
       _logger.i('Creating new conversation: $title');
       
@@ -499,13 +430,8 @@ class AiChatService {
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
       
       if (!supportsHistory) {
-        _logger.i('Selected model does not support conversation history, creating local session');
-        return ChatSession(
-          id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-          title: title.isEmpty ? 'New Chat' : title,
-          createdAt: DateTime.now(),
-          metadata: {'localOnly': true, 'noHistorySupport': true},
-        );
+        _logger.i('Selected model does not support conversation history, cannot create server conversation');
+        throw 'The selected model does not support conversation history';
       }
       
       // Use the exact endpoint from constants - make sure path is correctly formed
@@ -577,34 +503,15 @@ class AiChatService {
           );
         }
         
-        // If retry also failed, switch to local fallback
-        _useLocalFallback = true;
-        _logger.w('Switching to local fallback mode after auth failures');
-        
-        return ChatSession(
-          id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-          title: title.isEmpty ? 'New Chat' : title,
-          createdAt: DateTime.now(),
-        );
+        // If retry also failed, throw error
+        throw 'Authentication failed after token refresh';
       } else if (response.statusCode == 404) {
-        // API endpoint not found, use local fallback
-        _logger.w('Create conversation endpoint not available (404), using local fallback');
-        _useLocalFallback = true;
-        
-        return ChatSession(
-          id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-          title: title.isEmpty ? 'New Chat' : title,
-          createdAt: DateTime.now(),
-        );
+        // API endpoint not found
+        _logger.w('Create conversation endpoint not available (404)');
+        throw 'API endpoint not available';
       } else {
         _logger.e('Error creating conversation: ${response.body}');
-        
-        // For other errors, fall back to local session
-        return ChatSession(
-          id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-          title: title.isEmpty ? 'New Chat' : title,
-          createdAt: DateTime.now(),
-        );
+        throw 'Failed to create conversation: ${response.statusCode} ${response.reasonPhrase}';
       }
     } catch (e) {
       _logger.e('Error creating conversation: $e');
@@ -616,30 +523,7 @@ class AiChatService {
         _hasAuthError = true;
       }
       
-      // Always return a usable session even on error
-      return ChatSession(
-        id: 'local_${DateTime.now().millisecondsSinceEpoch}',
-        title: title.isEmpty ? 'New Chat' : title,
-        createdAt: DateTime.now(),
-      );
-    }
-  }
-  
-  /// Set the local fallback mode
-  Future<void> setFallbackMode(bool useFallback) async {
-    _useLocalFallback = useFallback;
-    _logger.i('Local fallback mode set to: $useFallback');
-    
-    // Save preference
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('use_local_fallback', useFallback);
-      
-      // Also log the current auth state for debugging
-      final hasToken = await _checkForValidToken();
-      _logger.i('Current auth state - Has valid token: $hasToken');
-    } catch (e) {
-      _logger.e('Error saving fallback mode preference: $e');
+      throw 'Failed to create conversation: $e';
     }
   }
   
@@ -650,52 +534,12 @@ class AiChatService {
       final hasAuthHeader = headers.containsKey('Authorization') && 
                            headers['Authorization']!.isNotEmpty;
       
-      // If we have a token, don't automatically use fallback mode,
-      // give the API calls a chance to work
-      if (hasAuthHeader) {
-        _logger.i('Valid auth token found, resetting fallback mode');
-        _useLocalFallback = false;
-      }
-      
       _logger.i('Auth header present: $hasAuthHeader');
       return hasAuthHeader;
     } catch (e) {
       _logger.e('Error checking for token: $e');
       return false;
     }
-  }
-
-  /// Force API mode and reset fallback flags
-  Future<void> forceUseApiMode() async {
-    try {
-      _logger.i('Forcing use of API mode');
-      
-      // Reset the fallback mode flag
-      _useLocalFallback = false;
-      _hasAuthError = false;
-      _errorCount = 0;
-      
-      // Save preference
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('use_local_fallback', false);
-      
-      _logger.i('Fallback mode reset, will try using API on next request');
-    } catch (e) {
-      _logger.e('Error forcing API mode: $e');
-    }
-  }
-
-  /// Check if the service is using local fallback mode
-  bool isUsingFallbackMode() {
-    return _useLocalFallback;
-  }
-  
-  /// Reset the local fallback mode
-  void resetFallbackMode() {
-    _useLocalFallback = false;
-    _hasAuthError = false;
-    _errorCount = 0;
-    _logger.i('Reset fallback mode, will try using API on next request');
   }
   
   /// Delete a conversation

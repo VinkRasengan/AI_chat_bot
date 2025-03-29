@@ -19,8 +19,8 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final Logger _logger = Logger();
-  final JarvisChatService _chatService = JarvisChatService();
   final AuthService _authService = AuthService();
+  late final JarvisChatService _chatService;
   
   List<ChatSession> _chatSessions = [];
   bool _isLoading = true;
@@ -34,6 +34,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _chatService = JarvisChatService(_authService); // Fix constructor
     _checkAuthAndLoadData();
   }
   
@@ -234,55 +235,76 @@ class _HomePageState extends State<HomePage> {
   }
   
   Future<void> _createNewChat() async {
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      final newChat = await _chatService.createChatSession('New Chat');
+      final newSession = await _chatService.createChatSession('New Chat');
       
-      if (newChat != null && mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ChatScreen(chatSession: newChat),
-          ),
-        ).then((_) => _loadChatSessions());
+      if (mounted) {
+        setState(() {
+          _chatSessions.add(newSession);
+          _isLoading = false;
+        });
+        
+        // Navigate to the new chat session
+        _navigateToChatScreen(newSession);
       }
     } catch (e) {
-      _logger.e('Error creating new chat: $e');
+      _logger.e('Error creating chat session: $e');
       
-      if (!mounted) return;
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create new chat: $e')),
-      );
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error creating chat: $e')),
+        );
+      }
     }
   }
   
   Future<void> _deleteChat(ChatSession session) async {
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
       final success = await _chatService.deleteChatSession(session.id);
       
-      if (!mounted) return;
-      
-      if (success) {
+      if (mounted) {
+        if (success) {
+          setState(() {
+            _chatSessions.removeWhere((s) => s.id == session.id);
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Chat deleted')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to delete chat')),
+          );
+        }
+        
         setState(() {
-          _chatSessions.removeWhere((s) => s.id == session.id);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      _logger.e('Error deleting chat session: $e');
+      
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
         });
         
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Chat deleted')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to delete chat')),
+          SnackBar(content: Text('Error: ${e.toString()}')),
         );
       }
-    } catch (e) {
-      _logger.e('Error deleting chat: $e');
-      
-      if (!mounted) return;
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
     }
   }
   
@@ -301,8 +323,7 @@ class _HomePageState extends State<HomePage> {
       
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Model updated to $model' + 
-                       (supportsHistory ? '' : ' (Local chat mode - history not saved on server)')),
+          content: Text('Model updated to $model${supportsHistory ? '' : ' (Local chat mode - history not saved on server)'}'),
           duration: const Duration(seconds: 4),
         ),
       );
@@ -343,74 +364,59 @@ class _HomePageState extends State<HomePage> {
     try {
       _logger.i('Checking and fixing API issues');
       
-      // Force the chat service to use API mode
-      final apiFixed = await _chatService.forceUseApiMode();
+      // Store a local copy of the context
+      final currentContext = context;
       
-      if (apiFixed) {
-        _logger.i('API issues fixed, reloading sessions');
-        await _loadChatSessions();
-        
+      // Call forceUseApiMode without trying to use its result as a boolean
+      await _chatService.forceUseApiMode(true);
+      
+      if (!mounted) return;
+      
+      // Reload sessions after trying to fix API
+      await _loadChatSessions();
+      
+      ScaffoldMessenger.of(currentContext).showSnackBar(
+        const SnackBar(
+          content: Text('API connection restored. Chat history should now be saved.'),
+          duration: Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      _logger.e('Error checking API issues: $e');
+      
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('API connection restored. Chat history should now be saved.'),
-            duration: Duration(seconds: 5),
-          ),
-        );
-      } else {
-        _logger.w('Could not fix API issues');
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not restore API connection. Chat history may not be saved.'),
-            duration: Duration(seconds: 5),
+          SnackBar(
+            content: Text('Could not restore API connection: $e'),
+            duration: const Duration(seconds: 5),
           ),
         );
       }
-    } catch (e) {
-      _logger.e('Error checking API issues: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   /// Force API mode and reload data
-  Future<void> _forceReconnect() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
+  Future<void> _forceUseApiMode() async {
     try {
-      _logger.i('Forcing API connectivity check and reset');
-      
-      // Reset fallback mode flags in chat service
-      await _chatService.forceUseApiMode();
-      
-      // Force auth state update
+      // Fix the parameter
+      await _chatService.forceUseApiMode(true);
       await _authService.forceAuthStateUpdate();
       
-      // Reload data
-      await _loadChatSessions();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('API connection reset. Using online mode.'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
-      _logger.e('Error forcing reconnect: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -432,7 +438,7 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             icon: const Icon(Icons.cloud_sync),
             tooltip: 'Force Online Mode',
-            onPressed: _forceReconnect,
+            onPressed: _forceUseApiMode,
           ),
         ],
       ),
@@ -554,7 +560,7 @@ class _HomePageState extends State<HomePage> {
       
       floatingActionButton: FloatingActionButton(
         onPressed: _createNewChat,
-        tooltip: 'New Chat',
+        tooltip: _noConversationsYet ? 'Create first chat' : 'New Chat',
         child: const Icon(Icons.add),
       ),
     );
@@ -741,5 +747,14 @@ class _HomePageState extends State<HomePage> {
     ];
     
     return colors[colorSeed % colors.length];
+  }
+  
+  void _navigateToChatScreen(ChatSession session) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(chatSession: session),
+      ),
+    ).then((_) => _loadChatSessions());
   }
 }

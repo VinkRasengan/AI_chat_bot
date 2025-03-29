@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:async';
+import 'dart:async' show TimeoutException; // Update import for clarity
 import 'package:logger/logger.dart';
 
 class ErrorInfo {
@@ -19,43 +19,6 @@ class ErrorInfo {
 /// Utility class for handling and formatting errors
 class ErrorUtils {
   static final Logger _logger = Logger();
-  
-  /// Format API errors into user-friendly messages
-  static String formatApiError(dynamic error) {
-    _logger.e('API Error: $error');
-    
-    // Handle network errors
-    if (error is SocketException) {
-      return 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối internet của bạn và thử lại.';
-    }
-    
-    // Handle timeout errors
-    if (error is TimeoutException) {
-      return 'Yêu cầu đã hết thời gian chờ. Vui lòng thử lại sau.';
-    }
-    
-    // Handle authentication errors
-    if (error.toString().contains('unauthorized') || 
-        error.toString().contains('invalid_token') ||
-        error.toString().contains('401')) {
-      return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
-    }
-    
-    // Handle common API errors
-    if (error.toString().contains('invalid_credentials') || 
-        error.toString().contains('wrong password') ||
-        error.toString().contains('user not found')) {
-      return 'Email hoặc mật khẩu không đúng. Vui lòng thử lại.';
-    }
-    
-    if (error.toString().contains('email-already-in-use') || 
-        error.toString().contains('Email already exists')) {
-      return 'Email đã được sử dụng. Vui lòng sử dụng email khác.';
-    }
-    
-    // Default error message
-    return 'Đã xảy ra lỗi: ${error.toString()}';
-  }
   
   /// Get user-friendly message for common chat errors
   static String getChatErrorMessage(dynamic error) {
@@ -196,6 +159,42 @@ class ErrorUtils {
       message: 'Đã xảy ra lỗi: ${_getSanitizedErrorMessage(error)}',
       code: 'unknown-error',
     );
+  }
+  
+  /// Format API errors into user-friendly messages
+  static String formatApiError(dynamic error) {
+    _logger.e('API Error: $error');
+    
+    // Handle network errors
+    if (error is SocketException) {
+      return 'Lỗi kết nối mạng. Vui lòng kiểm tra kết nối internet của bạn và thử lại.';
+    }
+    
+    // Handle timeout errors
+    if (error is TimeoutException) {
+      return 'Yêu cầu đã hết thời gian chờ. Vui lòng thử lại sau.';
+    }
+    
+    // Handle authentication errors
+    if (error.toString().contains('unauthorized') || 
+        error.toString().contains('invalid_token') ||
+        error.toString().contains('401')) {
+      return 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.';
+    }
+    
+    // Handle common API errors
+    if (error.toString().contains('invalid_credentials') || 
+        error.toString().contains('wrong password') ||
+        error.toString().contains('user not found')) {
+      return 'Tên đăng nhập hoặc mật khẩu không đúng.';
+    }
+    
+    if (error.toString().contains('email-already-in-use')) {
+      return 'Email này đã được sử dụng bởi một tài khoản khác.';
+    }
+    
+    // Default error message
+    return 'Đã xảy ra lỗi: ${error.toString()}';
   }
   
   // Clean up error message to avoid showing too much technical detail to users

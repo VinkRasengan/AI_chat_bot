@@ -5,7 +5,7 @@ import 'package:logger/logger.dart';
 /// Utility class for checking platform information
 class PlatformChecker {
   static final Logger _logger = Logger();
-  
+
   /// Returns true if the app is running on a mobile platform (Android or iOS)
   static bool get isMobile {
     try {
@@ -15,7 +15,7 @@ class PlatformChecker {
       return false;
     }
   }
-  
+
   /// Returns true if the app is running on a desktop platform (Windows, macOS, or Linux)
   static bool get isDesktop {
     try {
@@ -25,12 +25,12 @@ class PlatformChecker {
       return false;
     }
   }
-  
+
   /// Returns true if the app is running on a web platform
   static bool get isWeb {
     return kIsWeb;
   }
-  
+
   /// Returns a map containing platform information
   static Map<String, dynamic> getPlatformInfo() {
     try {
@@ -65,7 +65,7 @@ class PlatformChecker {
       };
     }
   }
-  
+
   /// Logs platform information to the console
   static void logPlatformInfo() {
     final info = getPlatformInfo();

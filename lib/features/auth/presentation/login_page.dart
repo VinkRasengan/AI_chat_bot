@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../../../core/services/auth/auth_service.dart';
-import '../../../core/utils/validators/password_validator.dart';
 import '../../../widgets/auth/auth_widgets.dart';
 import '../../chat/presentation/home_page.dart';
 import 'forgot_password_page.dart';
@@ -105,37 +104,6 @@ class _LoginPageState extends State<LoginPage> {
         });
       }
     }
-  }
-
-  bool _validateForm() {
-    setState(() {
-      _errorMessage = null;
-    });
-    
-    // Validate email
-    if (_emailController.text.trim().isEmpty) {
-      setState(() {
-        _errorMessage = 'Vui lòng nhập email';
-      });
-      return false;
-    }
-    
-    if (!PasswordValidator.isValidEmail(_emailController.text.trim())) {
-      setState(() {
-        _errorMessage = 'Email không hợp lệ';
-      });
-      return false;
-    }
-    
-    // Validate password
-    if (_passwordController.text.isEmpty) {
-      setState(() {
-        _errorMessage = 'Vui lòng nhập mật khẩu';
-      });
-      return false;
-    }
-    
-    return true;
   }
 
   @override

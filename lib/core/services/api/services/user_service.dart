@@ -32,6 +32,7 @@ class UserService {
         // Create a user model from the response
         // Updated field mapping to match actual API response structure
         final user = UserModel(
+          id: data['id'] ?? '',  // Include the id parameter
           uid: data['id'] ?? '',
           email: data['email'] ?? '',
           name: data['username'] ?? '',
@@ -53,6 +54,7 @@ class UserService {
           _logger.i('Creating fallback user model with stored user ID: $userId');
           
           return UserModel(
+            id: userId,  // Include the id parameter
             uid: userId,
             email: '',
             createdAt: DateTime.now(),
