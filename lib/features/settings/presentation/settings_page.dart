@@ -419,13 +419,17 @@ class _SettingsPageState extends State<SettingsPage> {
     if (isContextMounted && mounted) {
       setState(() {});
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Auth token refreshed successfully')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Auth token refreshed successfully')),
+          );
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to refresh auth token')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Failed to refresh auth token')),
+          );
+        }
       }
     }
   }
@@ -433,67 +437,71 @@ class _SettingsPageState extends State<SettingsPage> {
   void _showLanguageDialog(BuildContext context) {
     final languages = ['English', 'Tiếng Việt', 'Español', '中文', '日本語'];
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select Language'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: languages.length,
-            itemBuilder: (context, index) {
-              final language = languages[index];
-              final isSelected = language == _languageCode;
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Select Language'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: languages.length,
+              itemBuilder: (context, index) {
+                final language = languages[index];
+                final isSelected = language == _languageCode;
 
-              return ListTile(
-                title: Text(language),
-                trailing: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
-                onTap: () {
-                  setState(() {
-                    _languageCode = language;
-                  });
-                  _saveSettings();
-                  Navigator.pop(context);
-                },
-              );
-            },
+                return ListTile(
+                  title: Text(language),
+                  trailing: isSelected ? const Icon(Icons.check, color: Colors.blue) : null,
+                  onTap: () {
+                    setState(() {
+                      _languageCode = language;
+                    });
+                    _saveSettings();
+                    Navigator.pop(context);
+                  },
+                );
+              },
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-        ],
-      ),
-    );
+      );
+    }
   }
 
   void _showClearCacheDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear Cache'),
-        content: const Text(
-          'This will delete all locally stored conversation data. This action cannot be undone.',
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Clear Cache'),
+          content: const Text(
+            'This will delete all locally stored conversation data. This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _clearCache();
+              },
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Clear'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _clearCache();
-            },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
+      );
+    }
   }
 
   Future<void> _clearCache() async {
@@ -519,32 +527,34 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   void _showAppInfo(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('App Info'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Version: 1.0.0'),
-            SizedBox(height: 8),
-            Text('Made with Flutter and ❤️'),
-            SizedBox(height: 16),
-            Text(
-              'This app lets you chat with an AI using the Jarvis API platform.',
-              style: TextStyle(fontSize: 14),
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('App Info'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Version: 1.0.0'),
+              SizedBox(height: 8),
+              Text('Made with Flutter and ❤️'),
+              SizedBox(height: 16),
+              Text(
+                'This app lets you chat with an AI using the Jarvis API platform.',
+                style: TextStyle(fontSize: 14),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
+      );
+    }
   }
 
   String _getFontSizeLabel() {

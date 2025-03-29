@@ -32,6 +32,7 @@ class ApiConstants {
   // AI chat endpoints - ensure paths are correct for the API version
   static const String conversations = '/api/v1/ai-chat/conversations';
   static const String messages = '/api/v1/ai-chat/messages';
+  static const String prompts = '/api/v1/prompts'; // Added prompt endpoint
   
   // Make sure the conversation messages endpoint uses the correct format
   static String conversationMessages(String conversationId) {

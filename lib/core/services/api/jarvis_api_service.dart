@@ -4,11 +4,14 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../models/user_model.dart';
 import '../../models/chat/chat_session.dart';
 import '../../models/chat/message.dart';
+import '../../models/prompt/prompt_model.dart';
+import '../../models/prompt/prompt_pagination_result.dart'; // Add this import
 import '../../constants/api_constants.dart';
 import 'api_service.dart';
 import 'services/user_service.dart';
+import 'services/prompt_service.dart'; // Add import for prompt service
 import '../auth/auth_service.dart';
-import '../chat/jarvis_chat_service.dart'; // Updated import
+import '../chat/jarvis_chat_service.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,16 +24,18 @@ class JarvisApiService implements ApiService {
   // Service instances
   late final AuthService _authService;
   late final UserService _userService;
-  late final JarvisChatService _chatService; // Updated to use JarvisChatService
+  late final JarvisChatService _chatService;
+  late final PromptService _promptService; // Add prompt service
   
-  // Configuration variables moved from old implementation
+  // Configuration variables 
   String? _apiKey;
   bool _isInitialized = false;
 
   JarvisApiService._internal() {
     _authService = AuthService();
     _userService = UserService(_authService);
-    _chatService = JarvisChatService(_authService); // Updated to use JarvisChatService
+    _chatService = JarvisChatService(_authService);
+    _promptService = PromptService(_authService); // Initialize prompt service
   }
 
   Future<void> initialize() async {
@@ -215,6 +220,107 @@ class JarvisApiService implements ApiService {
       'id': entry.key,
       'name': entry.value,
     }).toList();
+  }
+
+  // Prompt operations
+  Future<PromptModel?> createPrompt(PromptModel prompt) async {
+    await _ensureInitialized();
+    return await _promptService.createPrompt(prompt);
+  }
+
+  Future<List<PromptModel>> getPrompts({
+    String? query,
+    String? category,
+    bool? isFavorite,
+    bool? isPublic,
+    bool onlyMine = false,
+    int limit = 100,
+  }) async {
+    await _ensureInitialized();
+    return await _promptService.getPrompts(
+      query: query,
+      category: category,
+      isFavorite: isFavorite,
+      isPublic: isPublic,
+      onlyMine: onlyMine,
+      limit: limit,
+    );
+  }
+  
+  Future<PromptPaginationResult> getPromptsWithPagination({
+    String? query,
+    int offset = 0,
+    int limit = 20,
+    String? category,
+    bool? isFavorite,
+    bool? isPublic,
+    bool onlyMine = false,
+  }) async {
+    await _ensureInitialized();
+    return await _promptService.getPromptsWithPagination(
+      query: query,
+      offset: offset,
+      limit: limit,
+      category: category,
+      isFavorite: isFavorite,
+      isPublic: isPublic,
+      onlyMine: onlyMine,
+    );
+  }
+  
+  Future<List<PromptModel>> getFavoritePrompts({int limit = 20}) async {
+    await _ensureInitialized();
+    return await _promptService.getFavoritePrompts(limit: limit);
+  }
+  
+  Future<List<PromptModel>> getMyPrompts({int limit = 20}) async {
+    await _ensureInitialized();
+    return await _promptService.getMyPrompts(limit: limit);
+  }
+  
+  Future<List<PromptModel>> getPromptsByCategory(String category, {int limit = 20}) async {
+    await _ensureInitialized();
+    return await _promptService.getPromptsByCategory(category, limit: limit);
+  }
+
+  Future<PromptModel?> getPromptById(String id) async {
+    await _ensureInitialized();
+    return await _promptService.getPromptById(id);
+  }
+
+  Future<PromptModel?> updatePrompt(
+    String id, 
+    PromptModel prompt, {
+    bool updateContent = true,
+    bool updateTitle = true,
+  }) async {
+    await _ensureInitialized();
+    return await _promptService.updatePrompt(
+      id, 
+      prompt,
+      updateContent: updateContent,
+      updateTitle: updateTitle,
+    );
+  }
+
+  Future<bool> deletePrompt(String id, {int retryCount = 0}) async {
+    await _ensureInitialized();
+    return await _promptService.deletePrompt(id, retryCount: retryCount);
+  }
+  
+  Future<bool> togglePromptFavorite(String promptId) async {
+    await _ensureInitialized();
+    return await _promptService.toggleFavorite(promptId);
+  }
+  
+  Future<bool> addPromptToFavorites(String promptId) async {
+    await _ensureInitialized();
+    return await _promptService.addFavorite(promptId);
+  }
+  
+  Future<bool> removePromptFromFavorites(String promptId) async {
+    await _ensureInitialized();
+    return await _promptService.removeFavorite(promptId);
   }
 
   // API Status Methods

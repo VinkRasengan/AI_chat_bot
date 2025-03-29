@@ -75,9 +75,11 @@ class _HomePageState extends State<HomePage> {
         _hasError = true;
       });
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading data: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading data: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -200,12 +202,14 @@ class _HomePageState extends State<HomePage> {
         _error = 'Failed to load conversations. Please try again.';
       });
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_error ?? 'Unknown error'),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_error ?? 'Unknown error'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
   
@@ -268,12 +272,14 @@ class _HomePageState extends State<HomePage> {
         _isLoading = false;
       });
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error creating new chat: ${e.toString()}'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error creating new chat: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
   
@@ -371,12 +377,14 @@ class _HomePageState extends State<HomePage> {
       
       final supportsHistory = ApiConstants.modelSupportsConversationHistory[model] ?? false;
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Model updated to $model${supportsHistory ? '' : ' (Local chat mode - history not saved on server)'}'),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Model updated to $model${supportsHistory ? '' : ' (Local chat mode - history not saved on server)'}'),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
       
       _loadChatSessions();
     } catch (e) {
@@ -384,9 +392,11 @@ class _HomePageState extends State<HomePage> {
       
       if (!mounted) return;
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update model: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update model: $e')),
+        );
+      }
     }
   }
   
@@ -398,9 +408,11 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       _logger.e('Error signing out: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error signing out: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error signing out: $e')),
+        );
+      }
     }
   }
   

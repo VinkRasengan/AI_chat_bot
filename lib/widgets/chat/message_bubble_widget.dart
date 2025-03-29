@@ -33,7 +33,7 @@ class MessageBubbleWidget extends StatelessWidget {
             decoration: BoxDecoration(
               // Use special styling for welcome message
               color: message.isUser 
-                  ? Theme.of(context).primaryColor 
+                  ? Colors.blue.withValues(red: 0, green: 122, blue: 255, alpha: 0.1)
                   : (isTyping 
                       ? Colors.grey.shade200 
                       : (isWelcomeMessage 
@@ -167,7 +167,7 @@ class _AnimatedPulseState extends State<AnimatedPulse> with SingleTickerProvider
           height: 8,
           width: 8,
           decoration: BoxDecoration(
-            color: Colors.grey.withOpacity(alphaValue / 255.0), // Proper opacity value
+            color: Colors.grey.withValues(red: 128, green: 128, blue: 128, alpha: 0.05),
             shape: BoxShape.circle,
           ),
         );
