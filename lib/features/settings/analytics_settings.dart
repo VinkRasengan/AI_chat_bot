@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
-import '../../core/services/analytics/analytics_service.dart';
 import '../../core/constants/app_colors.dart';
 
 class AnalyticsSettings extends StatefulWidget {
@@ -22,7 +20,6 @@ class _AnalyticsSettingsState extends State<AnalyticsSettings> {
   static const String CRASH_REPORTING_ENABLED_KEY = 'crash_reporting_enabled';
   
   final Logger _logger = Logger();
-  final AnalyticsService _analyticsService = AnalyticsService();
   
   bool _analyticsEnabled = true;
   bool _crashReportingEnabled = true;
@@ -49,44 +46,20 @@ class _AnalyticsSettingsState extends State<AnalyticsSettings> {
       });
     }
   }
-
   Future<void> _saveAnalyticsPreference(bool value) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(ANALYTICS_ENABLED_KEY, value);
-      
-      // Update Firebase Analytics collection setting
-      await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(value);
-      
-      // Log this change, but only if analytics is being enabled
-      if (value) {
-        _analyticsService.setUserProperty(
-          name: 'analytics_opt_in',
-          value: 'true',
-        );
-      }
       
       _logger.i('Analytics collection set to: $value');
     } catch (e) {
       _logger.e('Error saving analytics preference: $e');
     }
   }
-
   Future<void> _saveCrashReportingPreference(bool value) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(CRASH_REPORTING_ENABLED_KEY, value);
-      
-      // Update Firebase Crashlytics collection setting
-      // This would be implemented when Crashlytics is fully integrated
-      
-      // Log this change, but only if analytics is already enabled
-      if (_analyticsEnabled) {
-        _analyticsService.setUserProperty(
-          name: 'crash_reporting_opt_in',
-          value: value.toString(),
-        );
-      }
       
       _logger.i('Crash reporting set to: $value');
     } catch (e) {

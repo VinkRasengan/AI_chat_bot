@@ -94,7 +94,7 @@ Thank you for using AI Chat Bot. This Privacy Policy explains how we collect, us
 
 - **Usage Data**: We collect information about how you interact with the app, including the features you use and the time spent.
 - **Device Information**: We collect information about your device, including device type, operating system, and unique identifiers.
-- **Analytics Data**: We use Firebase Analytics to collect anonymous usage statistics.
+- **Analytics Data**: We collect anonymous usage statistics to improve the app.
 
 ## How We Use Your Information
 

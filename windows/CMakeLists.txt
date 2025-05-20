@@ -1,12 +1,10 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
-project(flutter_application_1 LANGUAGES CXX)
-
-add_definitions(-DEXCLUDE_FIREBASE_AUTH)
+project(ai_chat_bot LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
 # the on-disk name of your application.
-set(BINARY_NAME "flutter_application_1")
+set(BINARY_NAME "ai_chat_bot")
 
 # Explicitly opt in to modern CMake behaviors to avoid warnings with recent
 # versions of CMake.

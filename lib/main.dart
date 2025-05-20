@@ -1,37 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-// import 'package:firebase_analytics/firebase_analytics.dart';
 import 'core/constants/app_colors.dart';
-// import 'core/services/analytics/analytics_service.dart';
-// import 'core/services/analytics/analytics_provider.dart';
-// import 'core/services/analytics/global_analytics.dart';
 import 'features/splash/splash_screen.dart';
 import 'features/subscription/services/ad_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    // Initialize Firebase with generated options
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    
-    // Initialize Crashlytics
-    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-    
-    // Pass all uncaught errors to Crashlytics
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterError;
-    
-    // Initialize GlobalAnalytics (which will initialize AnalyticsService as well)
-    // await GlobalAnalytics().initialize();
-  } catch (e) {
-    // Continue even if Firebase fails to initialize
-    debugPrint('Failed to initialize Firebase services: $e');
-  }
-
+  
   // Initialize AdManager
   await AdManager().initialize();
 
@@ -169,11 +144,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     });
   }
   @override
-  Widget build(BuildContext context) {
-    return /* AnalyticsProvider(
-      analytics: _analyticsService,
-      child: */
-      MaterialApp(
+  Widget build(BuildContext context) {    return MaterialApp(
         title: 'AI Chat Bot',
         debugShowCheckedModeBanner: false,
         theme: _buildTheme(isDark: _isDarkMode),        
@@ -182,11 +153,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           setThemeMode: setThemeMode,
           currentThemeMode: _themeMode,
         ),
-        // Set up Firebase Analytics navigation observer
-        navigatorObservers: [
-          // FirebaseAnalyticsObserver(analytics: _analyticsService.analytics),
-        ],
-      // ),
     );
   }
 

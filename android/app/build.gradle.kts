@@ -1,9 +1,6 @@
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
-    // END: FlutterFire Configuration
+    // FlutterFire Configuration removed
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
@@ -12,7 +9,9 @@ plugins {
 android {
     namespace = "com.example.flutter_application_1"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973" // updated NDK version
+    
+    // Using NDK version from environment variable or falling back to a specific version
+    ndkVersion = System.getenv("ANDROID_NDK_VERSION") ?: "29.0.13113456" // Flexible NDK setup
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

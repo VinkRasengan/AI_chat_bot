@@ -29,11 +29,7 @@ dependencies:
   cached_network_image: ^3.3.1
   mime: ^1.0.4
   path: ^1.8.3  
-  flutter_markdown: ^0.7.7+1  
-  firebase_core: ^2.24.2
-  firebase_analytics: ^10.10.7
-  # Thêm Firebase Crashlytics để theo dõi sự cố
-  firebase_crashlytics: ^3.4.3
+  flutter_markdown: ^0.7.7+1    # Firebase dependencies removed
 
 dev_dependencies:
   flutter_test:
